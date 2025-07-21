@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+import argparse
+import os
+import pathlib
+import json
+import requests     # Para fazer requisições HTTP. Instale com: pip install requests
+import pyperclip    # Para operações de clipboard. Instale com: pip install pyperclip
+import datetime     # Para gerar timestamps para os nomes dos arquivos de histórico
+
+# Modelo do Gemini a ser usado
+GEMINI_MODEL = 'gemini-2.5-pro'
+
+# --- FUNÇÕES AUXILIARES ---
+
+def save_to_history(prompt: str, response: str):
+    """
+    Salva o prompt e a resposta em um arquivo de histórico em ~/.ctx/
+
+    Args:
+        prompt: O prompt completo enviado para a API.
+        response: A resposta de texto recebida da API.
+    """
+    try:
+        history_dir = pathlib.Path.home() / '.ctx'
+        history_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        filename = f"{timestamp}.txt"
+        filepath = history_dir / filename
+
+        content = f"# Prompt\n\n{prompt}\n\n# Response\n\n{response}\n"
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        print(f"✅ Histórico salvo em: {filepath}")
+
+    except Exception as e:
+        print(f"Erro ao salvar o histórico: {e}")
+
+
+def send_to_gemini(prompt: str, context: str, lang: str, specialist: str | None) -> dict | None:
+    """
+    Envia o prompt e o contexto para a API REST do Gemini.
+
+    Args:
+        prompt: O prompt do usuário.
+        context: O conteúdo dos arquivos concatenados.
+        lang: A linguagem de output desejada.
+        specialist: A persona especialista a ser usada (ou None).
+
+    Returns:
+        Um dicionário com a resposta ou None em caso de erro.
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("Erro: A variável de ambiente GEMINI_API_KEY não está definida.")
+        return None
+
+    # Define os textos das personas especialistas
+    specialist_prompts = {
+        'dev': 'Aja como um programador sênior especialista em desenvolvimento de software, com mais de 20 anos de experiência. Suas respostas devem ser claras, eficientes, bem-estruturadas e seguir as melhores práticas do mercado. Pense passo a passo.',
+        'rm': 'Aja como um analista de Retail Media sênior, especialista em estratégias de publicidade digital para e-commerce e marketplaces. Seu conhecimento abrange plataformas como Amazon Ads, Mercado Ads e Criteo. Suas respostas devem ser analíticas, estratégicas e baseadas em dados.'
+    }
+    
+    # Monta o prompt final em partes
+    prompt_parts = []
+    
+    # 1. Adiciona a persona, se especificada
+    if specialist and specialist in specialist_prompts:
+        prompt_parts.append(specialist_prompts[specialist])
+    
+    # 2. Adiciona o prompt do usuário e o contexto dos arquivos
+    prompt_parts.append(f"{prompt}\n\n--- CONTEXTO DOS ARQUIVOS ---\n\n{context}")
+    
+    # 3. Adiciona a instrução de linguagem
+    prompt_parts.append(f"--- INSTRUÇÃO DE SAÍDA ---\nResponda estritamente na linguagem: {lang}.")
+    
+    full_prompt = "\n\n".join(prompt_parts)
+
+    # Prepara a requisição para a API
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+    payload = {"contents": [{"parts": [{"text": full_prompt}]}]}
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        print(f"Enviando requisição para o modelo {GEMINI_MODEL}...")
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=300)
+        response.raise_for_status()
+        
+        response_data = response.json()
+        
+        # Extrai o texto da resposta
+        text_response = response_data['candidates'][0]['content']['parts'][0]['text']
+        
+        # Extrai os metadados de uso (tokens)
+        usage_metadata = response_data.get('usageMetadata', {})
+        prompt_tokens = usage_metadata.get('promptTokenCount', 'N/A')
+        response_tokens = usage_metadata.get('candidatesTokenCount', 'N/A')
+        
+        return {
+            "text": text_response,
+            "prompt_tokens": prompt_tokens,
+            "response_tokens": response_tokens,
+            "full_prompt": full_prompt
+        }
+
+    except requests.exceptions.RequestException as e:
+        print(f"Ocorreu um erro de rede ou HTTP ao chamar a API do Gemini: {e}")
+        if e.response is not None:
+            print(f"Detalhes do erro: {e.response.text}")
+        return None
+    except (KeyError, IndexError) as e:
+        print(f"Erro ao extrair o conteúdo da resposta da API: {e}")
+        print("Estrutura da resposta recebida:", response.json())
+        return None
+    except Exception as e:
+        print(f"Um erro inesperado ocorreu: {e}")
+        return None
+
+def process_file(file_path: pathlib.Path, path_format: str) -> str:
+    """
+    Lê o conteúdo de um arquivo e formata o cabeçalho com seu caminho.
+
+    Args:
+        file_path: O caminho do arquivo a ser processado.
+        path_format: Como o caminho deve ser formatado ('full', 'relative', 'name_only').
+
+    Returns:
+        Uma string com o conteúdo do arquivo formatado.
+    """
+    try:
+        display_path = ""
+        if path_format == 'name_only':
+            display_path = file_path.name
+        elif path_format == 'relative':
+            display_path = os.path.relpath(file_path.resolve(), pathlib.Path.cwd())
+        else: # 'full'
+            display_path = str(file_path.resolve())
+
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        return f"// filename=\"{display_path}\"\n{content}\n"
+    except Exception as e:
+        return f"// error_processing_file=\"{file_path.resolve()}\"\n// Error: {e}\n"
+
+# --- FUNÇÃO PRINCIPAL ---
+
+def main():
+    """Função principal que orquestra a execução do script."""
+    # Define as extensões de arquivo permitidas. O ponto no início é importante.
+    ALLOWED_EXTENSIONS = {
+        '.txt', '.py', '.rb', '.rs', '.html', '.css', '.js', '.ts', '.cs',
+        '.sh', '.md', '.c', '.cpp', '.hpp', '.h', '.json', '.yml', '.yaml',
+        '.jsonl', '.xml', '.scss'
+    }
+
+    parser = argparse.ArgumentParser(
+        description="Concatena o conteúdo de arquivos com extensões permitidas e opcionalmente envia para a API do Gemini."
+    )
+    parser.add_argument(
+        "paths",
+        metavar="PATH",
+        type=pathlib.Path,
+        nargs='+',
+        help="Uma lista de arquivos e/ou diretórios para processar."
+    )
+    parser.add_argument(
+        "-p", "--prompt",
+        type=str,
+        help="Um prompt opcional para enviar à API do Gemini junto com o conteúdo dos arquivos."
+    )
+    parser.add_argument(
+        '--lang',
+        type=str,
+        default='pt-br',
+        help='Linguagem de output desejada. Padrão: pt-br'
+    )
+    parser.add_argument(
+        '-s', '--specialist',
+        type=str,
+        choices=['dev', 'rm'],
+        help="Define uma persona especialista: 'dev' para Programador Sênior, 'rm' para Analista de Retail Media Sênior."
+    )
+
+    path_options = parser.add_mutually_exclusive_group()
+    path_options.add_argument(
+        "--relative-paths",
+        action="store_true",
+        help="Exibe caminhos relativos em vez de caminhos absolutos."
+    )
+    path_options.add_argument(
+        "--filename-only",
+        action="store_true",
+        help="Exibe apenas o nome do arquivo em vez do caminho completo."
+    )
+
+    args = parser.parse_args()
+
+    # Determina o formato do caminho
+    path_format_option = 'full'
+    if args.relative_paths:
+        path_format_option = 'relative'
+    elif args.filename_only:
+        path_format_option = 'name_only'
+
+    all_files_content = []
+    files_processed_count = 0
+    files_error_count = 0
+    files_skipped_count = 0
+
+    # Itera sobre os caminhos fornecidos (arquivos ou diretórios)
+    for path_arg in args.paths:
+        if not path_arg.exists():
+            print(f"Aviso: O caminho '{path_arg}' não existe. Pulando.")
+            continue
+
+        # Se for um arquivo único
+        if path_arg.is_file():
+            if path_arg.suffix in ALLOWED_EXTENSIONS:
+                print(f"Processando arquivo: {path_arg.resolve()}")
+                content = process_file(path_arg, path_format_option)
+                if content.startswith("// error_processing_file"):
+                    files_error_count += 1
+                else:
+                    files_processed_count += 1
+                all_files_content.append(content)
+            else:
+                print(f"Aviso: Arquivo com extensão não permitida '{path_arg.suffix}' foi ignorado: {path_arg}")
+                files_skipped_count += 1
+        
+        # Se for um diretório, busca arquivos recursivamente
+        elif path_arg.is_dir():
+            print(f"Processando diretório: {path_arg.resolve()}")
+            for child_path in path_arg.rglob('*'):
+                if child_path.is_file():
+                    if child_path.suffix in ALLOWED_EXTENSIONS:
+                        print(f"  -> Processando: {child_path.relative_to(path_arg)}")
+                        content = process_file(child_path, path_format_option)
+                        if content.startswith("// error_processing_file"):
+                            files_error_count += 1
+                        else:
+                            files_processed_count += 1
+                        all_files_content.append(content)
+                    else:
+                        files_skipped_count += 1
+        else:
+            print(f"Aviso: O caminho '{path_arg}' não é um arquivo nem um diretório. Pulando.")
+
+    # --- SAÍDA E PROCESSAMENTO FINAL ---
+
+    if not all_files_content:
+        print("\nNenhum arquivo válido foi encontrado ou processado.")
+        if files_skipped_count > 0:
+            print(f"{files_skipped_count} arquivo(s) foram ignorados devido à extensão não permitida.")
+        return
+
+    final_text = "".join(all_files_content)
+
+    # Se um prompt foi fornecido, envia para a API do Gemini
+    if args.prompt:
+        gemini_result = send_to_gemini(args.prompt, final_text, args.lang, args.specialist)
+        if gemini_result:
+            response_text = gemini_result['text']
+            
+            print("\n--- INFORMAÇÕES DA REQUISIÇÃO ---")
+            print(f"Arquivos Processados: {files_processed_count} | Erros: {files_error_count} | Ignorados: {files_skipped_count}")
+            print(f"Tokens Enviados (Prompt): {gemini_result['prompt_tokens']}")
+            print(f"Tokens Recebidos (Resposta): {gemini_result['response_tokens']}")
+            print("---------------------------------")
+            
+            print("\n--- RESPOSTA DO GEMINI ---\n")
+            print(response_text)
+            print("\n--------------------------\n")
+            
+            try:
+                pyperclip.copy(response_text)
+                print("✅ Resposta do Gemini copiada para a área de transferência!")
+            except pyperclip.PyperclipException as e:
+                print(f"Erro: Não foi possível copiar para a área de transferência. {e}")
+
+            save_to_history(gemini_result['full_prompt'], response_text)
+
+    # Se nenhum prompt foi fornecido, apenas copia o conteúdo para o clipboard
+    else:
+        try:
+            pyperclip.copy(final_text)
+            print(f"\nProcessado(s) {files_processed_count} arquivo(s) com sucesso.")
+            if files_skipped_count > 0:
+                 print(f"{files_skipped_count} arquivo(s) foram ignorados devido à extensão não permitida.")
+            if files_error_count > 0:
+                print(f"Encontrados erros em {files_error_count} arquivo(s).")
+            print("✅ O conteúdo combinado foi copiado para a sua área de transferência!")
+        except pyperclip.PyperclipException as e:
+            print(f"\nErro: Não foi possível copiar para a área de transferência. {e}")
+            print("\nAqui está a saída combinada:\n")
+            print("--------------------------------------------------")
+            print(final_text)
+            print("--------------------------------------------------")
+
+if __name__ == "__main__":
+    main()
+
