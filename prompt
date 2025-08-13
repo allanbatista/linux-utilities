@@ -3,25 +3,21 @@ import argparse
 import os
 import pathlib
 import json
-import requests     # Para fazer requisições HTTP. Instale com: pip install requests
-import pyperclip    # Para operações de clipboard. Instale com: pip install pyperclip
-import datetime     # Para gerar timestamps para os nomes dos arquivos de histórico
-
-# Modelo do Gemini a ser usado
-GEMINI_MODEL = 'gemini-2.5-pro'
-
-# --- FUNÇÕES AUXILIARES ---
+import requests
+import pyperclip
+import datetime
+import sys
 
 def save_to_history(prompt: str, response: str):
     """
-    Salva o prompt e a resposta em um arquivo de histórico em ~/.ctx/
+    Salva o prompt e a resposta em um arquivo de histórico em ~/.prompt/
 
     Args:
         prompt: O prompt completo enviado para a API.
         response: A resposta de texto recebida da API.
     """
     try:
-        history_dir = pathlib.Path.home() / '.ctx'
+        history_dir = pathlib.Path.home() / '.prompt'
         history_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
@@ -39,7 +35,7 @@ def save_to_history(prompt: str, response: str):
         print(f"Erro ao salvar o histórico: {e}")
 
 
-def send_to_gemini(prompt: str, context: str, lang: str, specialist: str | None) -> dict | None:
+def send_to_gemini(prompt: str, context: str, lang: str, specialist: str | None, model_name: str) -> dict | None:
     """
     Envia o prompt e o contexto para a API REST do Gemini.
 
@@ -48,6 +44,7 @@ def send_to_gemini(prompt: str, context: str, lang: str, specialist: str | None)
         context: O conteúdo dos arquivos concatenados.
         lang: A linguagem de output desejada.
         specialist: A persona especialista a ser usada (ou None).
+        model_name: O nome do modelo do Gemini a ser usado.
 
     Returns:
         Um dicionário com a resposta ou None em caso de erro.
@@ -57,43 +54,32 @@ def send_to_gemini(prompt: str, context: str, lang: str, specialist: str | None)
         print("Erro: A variável de ambiente GEMINI_API_KEY não está definida.")
         return None
 
-    # Define os textos das personas especialistas
     specialist_prompts = {
         'dev': 'Aja como um programador sênior especialista em desenvolvimento de software, com mais de 20 anos de experiência. Suas respostas devem ser claras, eficientes, bem-estruturadas e seguir as melhores práticas do mercado. Pense passo a passo.',
         'rm': 'Aja como um analista de Retail Media sênior, especialista em estratégias de publicidade digital para e-commerce e marketplaces. Seu conhecimento abrange plataformas como Amazon Ads, Mercado Ads e Criteo. Suas respostas devem ser analíticas, estratégicas e baseadas em dados.'
     }
     
-    # Monta o prompt final em partes
     prompt_parts = []
     
-    # 1. Adiciona a persona, se especificada
     if specialist and specialist in specialist_prompts:
         prompt_parts.append(specialist_prompts[specialist])
     
-    # 2. Adiciona o prompt do usuário e o contexto dos arquivos
     prompt_parts.append(f"{prompt}\n\n--- CONTEXTO DOS ARQUIVOS ---\n\n{context}")
-    
-    # 3. Adiciona a instrução de linguagem
     prompt_parts.append(f"--- INSTRUÇÃO DE SAÍDA ---\nResponda estritamente na linguagem: {lang}.")
     
     full_prompt = "\n\n".join(prompt_parts)
-
-    # Prepara a requisição para a API
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+    api_version = 'v1beta'
+    url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model_name}:generateContent?key={api_key}"
     payload = {"contents": [{"parts": [{"text": full_prompt}]}]}
     headers = {"Content-Type": "application/json"}
 
     try:
-        print(f"Enviando requisição para o modelo {GEMINI_MODEL}...")
+        print(f"Enviando requisição para o modelo {model_name} (API {api_version})...")
         response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=300)
         response.raise_for_status()
         
         response_data = response.json()
-        
-        # Extrai o texto da resposta
         text_response = response_data['candidates'][0]['content']['parts'][0]['text']
-        
-        # Extrai os metadados de uso (tokens)
         usage_metadata = response_data.get('usageMetadata', {})
         prompt_tokens = usage_metadata.get('promptTokenCount', 'N/A')
         response_tokens = usage_metadata.get('candidatesTokenCount', 'N/A')
@@ -118,16 +104,17 @@ def send_to_gemini(prompt: str, context: str, lang: str, specialist: str | None)
         print(f"Um erro inesperado ocorreu: {e}")
         return None
 
-def process_file(file_path: pathlib.Path, path_format: str) -> str:
+def process_file(file_path: pathlib.Path, path_format: str, max_tokens_doc: int) -> tuple[str, int, int]:
     """
-    Lê o conteúdo de um arquivo e formata o cabeçalho com seu caminho.
+    Lê o conteúdo de um arquivo, formata o cabeçalho e trunca se necessário com base em tokens.
 
     Args:
         file_path: O caminho do arquivo a ser processado.
         path_format: Como o caminho deve ser formatado ('full', 'relative', 'name_only').
+        max_tokens_doc: O número máximo de tokens estimados para este arquivo.
 
     Returns:
-        Uma string com o conteúdo do arquivo formatado.
+        Uma tupla contendo o conteúdo formatado, a contagem de palavras e os tokens estimados.
     """
     try:
         display_path = ""
@@ -140,15 +127,31 @@ def process_file(file_path: pathlib.Path, path_format: str) -> str:
 
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        return f"// filename=\"{display_path}\"\n{content}\n"
-    except Exception as e:
-        return f"// error_processing_file=\"{file_path.resolve()}\"\n// Error: {e}\n"
+        
+        original_tokens = len(content) // 4
+        warning_message = ""
 
-# --- FUNÇÃO PRINCIPAL ---
+        if original_tokens > max_tokens_doc:
+            max_chars = max_tokens_doc * 4
+            content = content[:max_chars]
+            warning_message = (
+                f"// warning_content_truncated=\"true\" "
+                f"original_token_count=\"{original_tokens}\" "
+                f"new_token_count=\"{max_tokens_doc}\"\n"
+            )
+            print(f"  -> Aviso: O arquivo '{display_path}' foi truncado para ~{max_tokens_doc} tokens.")
+
+        word_count = len(content.split())
+        estimated_tokens = len(content) // 4
+        formatted_content = f"// filename=\"{display_path}\"\n{warning_message}{content}\n"
+        
+        return formatted_content, word_count, estimated_tokens
+    except Exception as e:
+        error_message = f"// error_processing_file=\"{file_path.resolve()}\"\n// Error: {e}\n"
+        return error_message, 0, 0
 
 def main():
     """Função principal que orquestra a execução do script."""
-    # Define as extensões de arquivo permitidas. O ponto no início é importante.
     ALLOWED_EXTENSIONS = {
         '.txt', '.py', '.rb', '.rs', '.html', '.css', '.js', '.ts', '.cs',
         '.sh', '.md', '.c', '.cpp', '.hpp', '.h', '.json', '.yml', '.yaml',
@@ -156,13 +159,14 @@ def main():
     }
 
     parser = argparse.ArgumentParser(
-        description="Concatena o conteúdo de arquivos com extensões permitidas e opcionalmente envia para a API do Gemini."
+        description="Concatena o conteúdo de arquivos com extensões permitidas e opcionalmente envia para a API do Gemini.",
+        formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument(
         "paths",
         metavar="PATH",
         type=pathlib.Path,
-        nargs='+',
+        nargs='*',
         help="Uma lista de arquivos e/ou diretórios para processar."
     )
     parser.add_argument(
@@ -177,10 +181,31 @@ def main():
         help='Linguagem de output desejada. Padrão: pt-br'
     )
     parser.add_argument(
+        '-n', '--max-tokens',
+        type=int,
+        default=900_000,
+        help='Tamanho máximo em tokens estimados para o contexto total. Padrão: 900000'
+    )
+    parser.add_argument(
+        '-nn', '--max-tokens-doc',
+        type=int,
+        default=250_000,
+        help='Tamanho máximo em tokens estimados para cada arquivo individual. Padrão: 250000'
+    )
+    parser.add_argument(
         '-s', '--specialist',
         type=str,
         choices=['dev', 'rm'],
-        help="Define uma persona especialista: 'dev' para Programador Sênior, 'rm' para Analista de Retail Media Sênior."
+        help="Define uma persona especialista:\n"
+             "'dev' para Programador Sênior\n"
+             "'rm'  para Analista de Retail Media Sênior."
+    )
+    parser.add_argument(
+        '--model',
+        type=str,
+        default='gemini-1.5-flash-latest',
+        choices=['gemini-1.5-pro-latest', 'gemini-1.5-flash-latest'],
+        help='O modelo do Gemini a ser usado. Padrão: gemini-1.5-flash-latest'
     )
 
     path_options = parser.add_mutually_exclusive_group()
@@ -194,10 +219,14 @@ def main():
         action="store_true",
         help="Exibe apenas o nome do arquivo em vez do caminho completo."
     )
+    
+    # Se nenhum argumento for passado, exibe a ajuda
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
 
     args = parser.parse_args()
 
-    # Determina o formato do caminho
     path_format_option = 'full'
     if args.relative_paths:
         path_format_option = 'relative'
@@ -205,68 +234,78 @@ def main():
         path_format_option = 'name_only'
 
     all_files_content = []
+    total_word_count = 0
+    total_estimated_tokens = 0
     files_processed_count = 0
     files_error_count = 0
     files_skipped_count = 0
 
-    # Itera sobre os caminhos fornecidos (arquivos ou diretórios)
     for path_arg in args.paths:
         if not path_arg.exists():
             print(f"Aviso: O caminho '{path_arg}' não existe. Pulando.")
             continue
 
-        # Se for um arquivo único
         if path_arg.is_file():
             if path_arg.suffix in ALLOWED_EXTENSIONS:
-                print(f"Processando arquivo: {path_arg.resolve()}")
-                content = process_file(path_arg, path_format_option)
+                content, word_count, estimated_tokens = process_file(path_arg, path_format_option, args.max_tokens_doc)
+                print(f"Processando arquivo: {path_arg.resolve()} ({word_count} palavras, ~{estimated_tokens} tokens)")
                 if content.startswith("// error_processing_file"):
                     files_error_count += 1
                 else:
                     files_processed_count += 1
+                    total_word_count += word_count
+                    total_estimated_tokens += estimated_tokens
                 all_files_content.append(content)
             else:
                 print(f"Aviso: Arquivo com extensão não permitida '{path_arg.suffix}' foi ignorado: {path_arg}")
                 files_skipped_count += 1
         
-        # Se for um diretório, busca arquivos recursivamente
         elif path_arg.is_dir():
             print(f"Processando diretório: {path_arg.resolve()}")
             for child_path in path_arg.rglob('*'):
                 if child_path.is_file():
                     if child_path.suffix in ALLOWED_EXTENSIONS:
-                        print(f"  -> Processando: {child_path.relative_to(path_arg)}")
-                        content = process_file(child_path, path_format_option)
+                        content, word_count, estimated_tokens = process_file(child_path, path_format_option, args.max_tokens_doc)
+                        print(f"  -> Processando: {child_path.relative_to(path_arg)} ({word_count} palavras, ~{estimated_tokens} tokens)")
                         if content.startswith("// error_processing_file"):
                             files_error_count += 1
                         else:
                             files_processed_count += 1
+                            total_word_count += word_count
+                            total_estimated_tokens += estimated_tokens
                         all_files_content.append(content)
                     else:
                         files_skipped_count += 1
         else:
             print(f"Aviso: O caminho '{path_arg}' não é um arquivo nem um diretório. Pulando.")
 
-    # --- SAÍDA E PROCESSAMENTO FINAL ---
-
     if not all_files_content:
-        print("\nNenhum arquivo válido foi encontrado ou processado.")
-        if files_skipped_count > 0:
-            print(f"{files_skipped_count} arquivo(s) foram ignorados devido à extensão não permitida.")
-        return
+        # Se não houver arquivos, mas o prompt existir, continue para a API
+        if not args.prompt:
+            print("\nNenhum arquivo válido foi encontrado ou processado.")
+            if files_skipped_count > 0:
+                print(f"{files_skipped_count} arquivo(s) foram ignorados devido à extensão não permitida.")
+            return
 
     final_text = "".join(all_files_content)
 
-    # Se um prompt foi fornecido, envia para a API do Gemini
+    original_total_tokens = len(final_text) // 4
+    if original_total_tokens > args.max_tokens:
+        print(f"\nAviso: O contexto final com ~{original_total_tokens} tokens excedeu o limite de {args.max_tokens}. Truncando...")
+        max_chars = args.max_tokens * 4
+        final_text = final_text[:max_chars]
+        print(f"Novo total de tokens estimados no contexto: ~{len(final_text) // 4}")
+
     if args.prompt:
-        gemini_result = send_to_gemini(args.prompt, final_text, args.lang, args.specialist)
+        gemini_result = send_to_gemini(args.prompt, final_text, args.lang, args.specialist, args.model)
         if gemini_result:
             response_text = gemini_result['text']
             
             print("\n--- INFORMAÇÕES DA REQUISIÇÃO ---")
-            print(f"Arquivos Processados: {files_processed_count} | Erros: {files_error_count} | Ignorados: {files_skipped_count}")
-            print(f"Tokens Enviados (Prompt): {gemini_result['prompt_tokens']}")
-            print(f"Tokens Recebidos (Resposta): {gemini_result['response_tokens']}")
+            print(f"Modelo Utilizado: {args.model}")
+            print(f"Arquivos Processados: {files_processed_count} ({total_word_count} palavras, ~{total_estimated_tokens} tokens) | Erros: {files_error_count} | Ignorados: {files_skipped_count}")
+            print(f"Tokens Enviados (Contagem Real da API): {gemini_result['prompt_tokens']}")
+            print(f"Tokens Recebidos (Contagem Real da API): {gemini_result['response_tokens']}")
             print("---------------------------------")
             
             print("\n--- RESPOSTA DO GEMINI ---\n")
@@ -281,11 +320,11 @@ def main():
 
             save_to_history(gemini_result['full_prompt'], response_text)
 
-    # Se nenhum prompt foi fornecido, apenas copia o conteúdo para o clipboard
-    else:
+    # Se não houver prompt, mas houver conteúdo de arquivo, copie para o clipboard
+    elif final_text:
         try:
             pyperclip.copy(final_text)
-            print(f"\nProcessado(s) {files_processed_count} arquivo(s) com sucesso.")
+            print(f"\nProcessado(s) {files_processed_count} arquivo(s) com sucesso ({total_word_count} palavras, ~{total_estimated_tokens} tokens no total).")
             if files_skipped_count > 0:
                  print(f"{files_skipped_count} arquivo(s) foram ignorados devido à extensão não permitida.")
             if files_error_count > 0:
@@ -300,4 +339,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
