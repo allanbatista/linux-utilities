@@ -1,4 +1,32 @@
 #!/usr/bin/env python3
+"""
+CLI para concatenar conteúdo de arquivos e enviar para um LLM provider.
+Agora com suporte a ChatGPT (OpenAI) **sem dependências extras** (usa somente `requests`).
+
+Configuração do modelo/provedor via `~/.prompt/config.json` (opcional).
+
+Exemplo de `~/.prompt/config.json`:
+{
+  "provider": "chatgpt",                 // "gemini" ou "chatgpt" (default: gemini)
+  "model": "gpt-4o-mini",               // default global (pode ser sobrescrito por provider)
+  "providers": {
+    "chatgpt": {
+      "model": "gpt-4o-mini",           // nome do modelo OpenAI
+      "api_key_env": "OPENAI_API_KEY",  // nome da variável de ambiente
+      "api_base": "https://api.openai.com/v1"
+    },
+    "gemini": {
+      "model": "gemini-1.5-flash-latest",
+      "api_key_env": "GEMINI_API_KEY"
+    }
+  },
+  "request": { "timeout_seconds": 300 }
+}
+
+Novidade:
+- Flag `--set-default-model <modelo>` para **persistir** o modelo default em `~/.prompt/config.json` (chave top-level `model`).
+  Se usada isoladamente (sem `-p` e sem caminhos), apenas atualiza o config e encerra.
+"""
 import argparse
 import os
 import pathlib
@@ -7,66 +35,82 @@ import requests
 import pyperclip
 import datetime
 import sys
+from typing import Optional, Tuple, Dict, Any
 
-def save_to_history(prompt: str, response: str):
+# =========================
+# Utilitários e Persistência
+# =========================
+
+def load_config() -> Dict[str, Any]:
+    """Carrega ~/.prompt/config.json se existir; caso contrário, retorna {}."""
+    try:
+        cfg_path = pathlib.Path.home() / ".prompt" / "config.json"
+        if cfg_path.exists():
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"Aviso: não foi possível ler ~/.prompt/config.json: {e}")
+    return {}
+
+
+def persist_default_model(new_model: str) -> bool:
     """
-    Salva o prompt e a resposta em um arquivo de histórico em ~/.prompt/
-
-    Args:
-        prompt: O prompt completo enviado para a API.
-        response: A resposta de texto recebida da API.
+    Atualiza o modelo default em ~/.prompt/config.json (chave top-level "model"),
+    preservando os demais campos. Cria o arquivo se não existir.
     """
     try:
-        history_dir = pathlib.Path.home() / '.prompt'
-        history_dir.mkdir(parents=True, exist_ok=True)
+        cfg_dir = pathlib.Path.home() / ".prompt"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        cfg_path = cfg_dir / "config.json"
 
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        filename = f"{timestamp}.txt"
-        filepath = history_dir / filename
+        config: Dict[str, Any] = {}
+        if cfg_path.exists():
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    config = json.load(f) or {}
+            except json.JSONDecodeError:
+                config = {}
+        else:
+            config = {}
 
-        content = f"# Prompt\n\n{prompt}\n\n# Response\n\n{response}\n"
+        config["model"] = new_model
 
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(content)
-        
-        print(f"✅ Histórico salvo em: {filepath}")
-
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        return True
     except Exception as e:
-        print(f"Erro ao salvar o histórico: {e}")
+        print(f"Erro ao persistir modelo default: {e}")
+        return False
 
 
-def send_to_gemini(prompt: str, context: str, lang: str, specialist: str | None, model_name: str) -> dict | None:
-    """
-    Envia o prompt e o contexto para a API REST do Gemini.
+# =========================
+# Providers
+# =========================
 
-    Args:
-        prompt: O prompt do usuário.
-        context: O conteúdo dos arquivos concatenados.
-        lang: A linguagem de output desejada.
-        specialist: A persona especialista a ser usada (ou None).
-        model_name: O nome do modelo do Gemini a ser usado.
-
-    Returns:
-        Um dicionário com a resposta ou None em caso de erro.
-    """
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        print("Erro: A variável de ambiente GEMINI_API_KEY não está definida.")
-        return None
-
+def build_specialist_prefix(specialist: Optional[str]) -> str:
     specialist_prompts = {
         'dev': 'Aja como um programador sênior especialista em desenvolvimento de software, com mais de 20 anos de experiência. Suas respostas devem ser claras, eficientes, bem-estruturadas e seguir as melhores práticas do mercado. Pense passo a passo.',
         'rm': 'Aja como um analista de Retail Media sênior, especialista em estratégias de publicidade digital para e-commerce e marketplaces. Seu conhecimento abrange plataformas como Amazon Ads, Mercado Ads e Criteo. Suas respostas devem ser analíticas, estratégicas e baseadas em dados.'
     }
-    
+    return specialist_prompts.get(specialist or "", "")
+
+
+def send_to_gemini(prompt: str, context: str, lang: str, specialist: Optional[str], model_name: str, timeout_s: int, api_key_env: str = "GEMINI_API_KEY") -> Optional[Dict[str, Any]]:
+    """
+    Envia o prompt e o contexto para a API REST do Gemini (Google).
+    """
+    api_key = os.getenv(api_key_env)
+    if not api_key:
+        print(f"Erro: A variável de ambiente {api_key_env} não está definida.")
+        return None
+
     prompt_parts = []
-    
-    if specialist and specialist in specialist_prompts:
-        prompt_parts.append(specialist_prompts[specialist])
-    
+    specialist_prefix = build_specialist_prefix(specialist)
+    if specialist_prefix:
+        prompt_parts.append(specialist_prefix)
     prompt_parts.append(f"{prompt}\n\n--- CONTEXTO DOS ARQUIVOS ---\n\n{context}")
     prompt_parts.append(f"--- INSTRUÇÃO DE SAÍDA ---\nResponda estritamente na linguagem: {lang}.")
-    
+
     full_prompt = "\n\n".join(prompt_parts)
     api_version = 'v1beta'
     url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model_name}:generateContent?key={api_key}"
@@ -74,10 +118,9 @@ def send_to_gemini(prompt: str, context: str, lang: str, specialist: str | None,
     headers = {"Content-Type": "application/json"}
 
     try:
-        print(f"Enviando requisição para o modelo {model_name} (API {api_version})...")
-        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=300)
+        print(f"Enviando requisição para o Gemini {model_name} (API {api_version})...")
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=timeout_s)
         response.raise_for_status()
-        
         response_data = response.json()
         text_response = response_data['candidates'][0]['content']['parts'][0]['text']
         usage_metadata = response_data.get('usageMetadata', {})
@@ -85,26 +128,110 @@ def send_to_gemini(prompt: str, context: str, lang: str, specialist: str | None,
         response_tokens = usage_metadata.get('candidatesTokenCount', 'N/A')
         
         return {
+            "provider": "gemini",
             "text": text_response,
             "prompt_tokens": prompt_tokens,
             "response_tokens": response_tokens,
-            "full_prompt": full_prompt
+            "full_prompt": full_prompt,
+            "model": model_name,
         }
 
     except requests.exceptions.RequestException as e:
         print(f"Ocorreu um erro de rede ou HTTP ao chamar a API do Gemini: {e}")
-        if e.response is not None:
-            print(f"Detalhes do erro: {e.response.text}")
+        if getattr(e, 'response', None) is not None:
+            try:
+                print(f"Detalhes do erro: {e.response.text}")
+            except Exception:
+                pass
         return None
     except (KeyError, IndexError) as e:
-        print(f"Erro ao extrair o conteúdo da resposta da API: {e}")
-        print("Estrutura da resposta recebida:", response.json())
+        print(f"Erro ao extrair o conteúdo da resposta da API (Gemini): {e}")
+        try:
+            print("Estrutura da resposta recebida:", response.json())
+        except Exception:
+            pass
         return None
     except Exception as e:
-        print(f"Um erro inesperado ocorreu: {e}")
+        print(f"Um erro inesperado ocorreu (Gemini): {e}")
         return None
 
-def process_file(file_path: pathlib.Path, path_format: str, max_tokens_doc: int) -> tuple[str, int, int]:
+
+def send_to_chatgpt(prompt: str, context: str, lang: str, specialist: Optional[str], model_name: str, timeout_s: int, api_key_env: str = "OPENAI_API_KEY", api_base: str = "https://api.openai.com/v1") -> Optional[Dict[str, Any]]:
+    """
+    Envia o prompt e o contexto para a API REST do OpenAI Chat Completions (ChatGPT).
+    Usa somente `requests`.
+    """
+    api_key = os.getenv(api_key_env)
+    if not api_key:
+        print(f"Erro: A variável de ambiente {api_key_env} não está definida.")
+        return None
+
+    # Mensagens no formato Chat Completions
+    sys_parts = []
+    specialist_prefix = build_specialist_prefix(specialist)
+    if specialist_prefix:
+        sys_parts.append(specialist_prefix)
+    sys_parts.append(f"Responda estritamente na linguagem: {lang}.")
+    system_msg = {"role": "system", "content": "\n\n".join(sys_parts) or "Você é um assistente útil."}
+
+    user_content = f"{prompt}\n\n--- CONTEXTO DOS ARQUIVOS ---\n\n{context}"
+    user_msg = {"role": "user", "content": user_content}
+
+    url = f"{api_base.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model_name,
+        "messages": [system_msg, user_msg],
+    }
+
+    try:
+        print(f"Enviando requisição para ChatGPT {model_name} (Chat Completions)...")
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=timeout_s)
+        response.raise_for_status()
+        data = response.json()
+        text_response = data['choices'][0]['message']['content']
+        usage = data.get('usage', {})
+        prompt_tokens = usage.get('prompt_tokens', 'N/A')
+        response_tokens = usage.get('completion_tokens', 'N/A')
+
+        full_prompt = (system_msg["content"] + "\n\n" + user_content)
+        return {
+            "provider": "chatgpt",
+            "text": text_response,
+            "prompt_tokens": prompt_tokens,
+            "response_tokens": response_tokens,
+            "full_prompt": full_prompt,
+            "model": model_name,
+        }
+
+    except requests.exceptions.RequestException as e:
+        print(f"Ocorreu um erro de rede ou HTTP ao chamar a API do OpenAI: {e}")
+        if getattr(e, 'response', None) is not None:
+            try:
+                print(f"Detalhes do erro: {e.response.text}")
+            except Exception:
+                pass
+        return None
+    except (KeyError, IndexError) as e:
+        print(f"Erro ao extrair o conteúdo da resposta da API (OpenAI): {e}")
+        try:
+            print("Estrutura da resposta recebida:", response.json())
+        except Exception:
+            pass
+        return None
+    except Exception as e:
+        print(f"Um erro inesperado ocorreu (OpenAI): {e}")
+        return None
+
+
+# =========================
+# Processamento de Arquivos
+# =========================
+
+def process_file(file_path: pathlib.Path, path_format: str, max_tokens_doc: int) -> Tuple[str, int, int]:
     """
     Lê o conteúdo de um arquivo, formata o cabeçalho e trunca se necessário com base em tokens.
 
@@ -150,6 +277,50 @@ def process_file(file_path: pathlib.Path, path_format: str, max_tokens_doc: int)
         error_message = f"// error_processing_file=\"{file_path.resolve()}\"\n// Error: {e}\n"
         return error_message, 0, 0
 
+
+# =========================
+# Configuração Efetiva
+# =========================
+
+def resolve_settings(args, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve provider/model/timeout/api_base/api_key_env a partir de args + config."""
+    provider = args.provider or config.get("provider") or "gemini"
+
+    providers = config.get("providers", {})
+    p_cfg = providers.get(provider, {}) if isinstance(providers, dict) else {}
+
+    # Model precedence: CLI > provider-specific > top-level > hardcoded default
+    if args.model:
+        model = args.model
+    else:
+        model = p_cfg.get("model") or config.get("model")
+        if not model:
+            model = "gemini-1.5-flash-latest" if provider == "gemini" else "gpt-4o-mini"
+
+    # API key env var name
+    api_key_env = p_cfg.get("api_key_env")
+    if not api_key_env:
+        api_key_env = "GEMINI_API_KEY" if provider == "gemini" else "OPENAI_API_KEY"
+
+    # API base (usado apenas para chatgpt)
+    api_base = p_cfg.get("api_base") or "https://api.openai.com/v1"
+
+    # Timeout
+    timeout_s = int(config.get("request", {}).get("timeout_seconds", 300))
+
+    return {
+        "provider": provider,
+        "model": model,
+        "api_key_env": api_key_env,
+        "api_base": api_base,
+        "timeout_s": timeout_s,
+    }
+
+
+# =========================
+# Main
+# =========================
+
 def main():
     """Função principal que orquestra a execução do script."""
     ALLOWED_EXTENSIONS = {
@@ -159,7 +330,10 @@ def main():
     }
 
     parser = argparse.ArgumentParser(
-        description="Concatena o conteúdo de arquivos com extensões permitidas e opcionalmente envia para a API do Gemini.",
+        description=(
+            "Concatena o conteúdo de arquivos com extensões permitidas e "
+            "opcionalmente envia para a API do Gemini ou ChatGPT."
+        ),
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument(
@@ -172,7 +346,7 @@ def main():
     parser.add_argument(
         "-p", "--prompt",
         type=str,
-        help="Um prompt opcional para enviar à API do Gemini junto com o conteúdo dos arquivos."
+        help="Um prompt opcional para enviar à API junto com o conteúdo dos arquivos."
     )
     parser.add_argument(
         '--lang',
@@ -196,16 +370,27 @@ def main():
         '-s', '--specialist',
         type=str,
         choices=['dev', 'rm'],
-        help="Define uma persona especialista:\n"
-             "'dev' para Programador Sênior\n"
-             "'rm'  para Analista de Retail Media Sênior."
+        help=(
+            "Define uma persona especialista:\n"
+            "'dev' para Programador Sênior\n"
+            "'rm'  para Analista de Retail Media Sênior."
+        )
+    )
+    parser.add_argument(
+        '--provider',
+        type=str,
+        choices=['gemini', 'chatgpt'],
+        help='Define o provedor a ser usado (gemini/chatgpt). Se omitido, usa ~/.prompt/config.json ou gemini.'
     )
     parser.add_argument(
         '--model',
         type=str,
-        default='gemini-1.5-flash-latest',
-        choices=['gemini-1.5-pro-latest', 'gemini-1.5-flash-latest'],
-        help='O modelo do Gemini a ser usado. Padrão: gemini-1.5-flash-latest'
+        help='Nome do modelo a ser usado. Se omitido, usa ~/.prompt/config.json ou padrão do provedor.'
+    )
+    parser.add_argument(
+        '--set-default-model',
+        type=str,
+        help='Define e persiste o modelo padrão (top-level "model") em ~/.prompt/config.json e encerra, se nenhum outro argumento for passado.'
     )
 
     path_options = parser.add_mutually_exclusive_group()
@@ -226,6 +411,20 @@ def main():
         sys.exit(1)
 
     args = parser.parse_args()
+
+    # Atualiza modelo default, se solicitado
+    if args.set_default_model:
+        if persist_default_model(args.set_default_model):
+            print(f"✅ Modelo default atualizado para: {args.set_default_model} em ~/.prompt/config.json")
+        else:
+            print("Erro ao atualizar o modelo default.")
+        # Se apenas setou o default e não forneceu prompt nem caminhos, encerra.
+        if not args.prompt and len(args.paths) == 0:
+            return
+
+    # Carrega configurações
+    config = load_config()
+    settings = resolve_settings(args, config)
 
     path_format_option = 'full'
     if args.relative_paths:
@@ -279,49 +478,61 @@ def main():
         else:
             print(f"Aviso: O caminho '{path_arg}' não é um arquivo nem um diretório. Pulando.")
 
-    if not all_files_content:
-        # Se não houver arquivos, mas o prompt existir, continue para a API
-        if not args.prompt:
-            print("\nNenhum arquivo válido foi encontrado ou processado.")
-            if files_skipped_count > 0:
-                print(f"{files_skipped_count} arquivo(s) foram ignorados devido à extensão não permitida.")
-            return
-
     final_text = "".join(all_files_content)
 
+    # Caso nenhum arquivo tenha sido processado
+    if not final_text and not args.prompt:
+        print("\nNenhum arquivo válido foi encontrado ou processado.")
+        if files_skipped_count > 0:
+            print(f"{files_skipped_count} arquivo(s) foram ignorados devido à extensão não permitida.")
+        return
+
     original_total_tokens = len(final_text) // 4
-    if original_total_tokens > args.max_tokens:
+    if args.max_tokens and original_total_tokens > args.max_tokens:
         print(f"\nAviso: O contexto final com ~{original_total_tokens} tokens excedeu o limite de {args.max_tokens}. Truncando...")
         max_chars = args.max_tokens * 4
         final_text = final_text[:max_chars]
         print(f"Novo total de tokens estimados no contexto: ~{len(final_text) // 4}")
 
+    # Realiza a chamada ao provider caso exista prompt
     if args.prompt:
-        gemini_result = send_to_gemini(args.prompt, final_text, args.lang, args.specialist, args.model)
-        if gemini_result:
-            response_text = gemini_result['text']
+        prov = settings["provider"]
+        model = settings["model"]
+        timeout_s = settings["timeout_s"]
+        api_key_env = settings["api_key_env"]
+
+        if prov == "chatgpt":
+            api_base = settings["api_base"]
+            result = send_to_chatgpt(args.prompt, final_text, args.lang, args.specialist, model, timeout_s, api_key_env=api_key_env, api_base=api_base)
+        else:
+            result = send_to_gemini(args.prompt, final_text, args.lang, args.specialist, model, timeout_s, api_key_env=api_key_env)
+
+        if result:
+            response_text = result['text']
             
             print("\n--- INFORMAÇÕES DA REQUISIÇÃO ---")
-            print(f"Modelo Utilizado: {args.model}")
+            print(f"Provider Utilizado: {result['provider']}")
+            print(f"Modelo Utilizado: {result['model']}")
             print(f"Arquivos Processados: {files_processed_count} ({total_word_count} palavras, ~{total_estimated_tokens} tokens) | Erros: {files_error_count} | Ignorados: {files_skipped_count}")
-            print(f"Tokens Enviados (Contagem Real da API): {gemini_result['prompt_tokens']}")
-            print(f"Tokens Recebidos (Contagem Real da API): {gemini_result['response_tokens']}")
+            print(f"Tokens Enviados (API): {result['prompt_tokens']}")
+            print(f"Tokens Recebidos (API): {result['response_tokens']}")
             print("---------------------------------")
             
-            print("\n--- RESPOSTA DO GEMINI ---\n")
+            print("\n--- RESPOSTA DO MODELO ---\n")
             print(response_text)
             print("\n--------------------------\n")
             
             try:
                 pyperclip.copy(response_text)
-                print("✅ Resposta do Gemini copiada para a área de transferência!")
+                print("✅ Resposta copiada para a área de transferência!")
             except pyperclip.PyperclipException as e:
                 print(f"Erro: Não foi possível copiar para a área de transferência. {e}")
 
-            save_to_history(gemini_result['full_prompt'], response_text)
+            save_to_history(result['full_prompt'], response_text)
+        return
 
     # Se não houver prompt, mas houver conteúdo de arquivo, copie para o clipboard
-    elif final_text:
+    if final_text:
         try:
             pyperclip.copy(final_text)
             print(f"\nProcessado(s) {files_processed_count} arquivo(s) com sucesso ({total_word_count} palavras, ~{total_estimated_tokens} tokens no total).")
@@ -336,6 +547,7 @@ def main():
             print("--------------------------------------------------")
             print(final_text)
             print("--------------------------------------------------")
+
 
 if __name__ == "__main__":
     main()

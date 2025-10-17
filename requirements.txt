@@ -1,0 +1,9 @@
+# Original dependencies
+claude-agent-sdk
+colorama
+gitpython
+
+# New PM CLI dependencies
+click>=8.0.0
+pyyaml>=6.0
+rich>=13.0.0
