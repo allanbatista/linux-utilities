@@ -122,12 +122,18 @@ def plan_list(ctx, status, tag):
 
 
 @plan.command('create')
-@click.option('--interactive/--no-interactive', default=True, help='Interactive mode')
-@click.option('--name', type=str, help='Plan name')
-@click.option('--brief', type=str, help='Brief description')
+@click.option('--ai/--no-ai', default=True, help='Use AI-powered interactive planning (default)')
+@click.option('--interactive/--no-interactive', default=False, help='Use manual interactive mode (legacy)')
+@click.option('--name', type=str, help='Plan name (required for non-interactive mode)')
+@click.option('--brief', type=str, help='Brief description (for non-interactive mode)')
 @click.pass_context
-def plan_create(ctx, interactive, name, brief):
-    """Create a new plan."""
+def plan_create(ctx, ai, interactive, name, brief):
+    """Create a new plan.
+
+    By default, uses AI-powered conversational planning where you chat with Claude
+    to create your plan. Use --no-ai --interactive for the manual wizard, or provide
+    --name for quick non-interactive creation.
+    """
     config: Config = ctx.obj['config']
     formatter: Formatter = ctx.obj['formatter']
 
@@ -136,8 +142,20 @@ def plan_create(ctx, interactive, name, brief):
         sys.exit(1)
 
     try:
-        if interactive:
-            # Interactive wizard
+        if ai:
+            # AI-powered conversational mode (new default)
+            import asyncio
+            from ..ai.plan_generator import AIPlanGenerator
+
+            generator = AIPlanGenerator(config)
+            new_plan = asyncio.run(generator.interactive_planning())
+
+            if new_plan is None:
+                formatter.print_warning("Plan creation cancelled")
+                return
+
+        elif interactive:
+            # Manual interactive wizard (legacy mode)
             wizard = InteractiveMode(config, formatter)
             new_plan = wizard.create_plan_wizard()
 
@@ -161,6 +179,9 @@ def plan_create(ctx, interactive, name, brief):
         new_plan.save(config)
         formatter.print_success(f"Plan '{new_plan.name}' created successfully")
 
+    except KeyboardInterrupt:
+        formatter.print_warning("\nPlan creation cancelled")
+        sys.exit(130)
     except Exception as e:
         formatter.print_error(f"Failed to create plan: {e}")
         sys.exit(1)

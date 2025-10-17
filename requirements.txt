@@ -1,9 +1,12 @@
 # Original dependencies
-claude-agent-sdk
+claude-agent-sdk>=0.1.4
 colorama
 gitpython
 
-# New PM CLI dependencies
+# PM CLI dependencies
 click>=8.0.0
 pyyaml>=6.0
 rich>=13.0.0
+
+# Async support for AI features
+anyio>=4.0.0
