@@ -145,9 +145,9 @@ def plan_create(ctx, ai, interactive, name, brief):
         if ai:
             # AI-powered conversational mode (new default)
             import asyncio
-            from ..ai.plan_generator import AIPlanGenerator
+            from ..ai.agent_planner import AgentPlanner
 
-            generator = AIPlanGenerator(config)
+            generator = AgentPlanner(config)
             new_plan = asyncio.run(generator.interactive_planning())
 
             if new_plan is None:
