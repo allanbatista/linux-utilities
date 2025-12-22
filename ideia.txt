@@ -1,0 +1,13 @@
+o que define um projeto?
+- personas?
+
+o que define uma feature?
+- requisitos funcionais e não funcionais?
+- personas envolvidas?
+- regras de negócio
+
+o que define um epico?
+
+o que define uma task?
+
+o que são critérios de aceitação?
