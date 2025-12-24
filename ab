@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname -- "$SCRIPT_PATH")"
+
+show_help() {
+    echo "ab - Allan Batista's CLI utilities"
+    echo ""
+    echo "Uso: ab <comando> [argumentos...]"
+    echo ""
+    echo "Comandos disponíveis:"
+    echo "  auto-commit      Gera mensagem de commit via LLM"
+    echo "  pr-description   Gera título/descrição de PR via LLM"
+    echo "  prompt           Envia contexto para LLM (OpenRouter)"
+    echo "  passgenerator    Gerador de senhas seguras"
+    echo ""
+    echo "Exemplos:"
+    echo "  ab auto-commit -a -y"
+    echo "  ab pr-description -c"
+    echo "  ab prompt -p 'oi'"
+    echo ""
+    echo "Use 'ab <comando> --help' para mais detalhes"
+}
+
+# Se nenhum argumento, mostra help
+if [ $# -eq 0 ]; then
+    show_help
+    exit 0
+fi
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+    help|-h|--help)
+        show_help
+        ;;
+    auto-commit|pr-description|prompt|passgenerator)
+        exec "$SCRIPT_DIR/$COMMAND" "$@"
+        ;;
+    *)
+        echo "Erro: comando desconhecido '$COMMAND'"
+        echo "Use 'ab help' para ver comandos disponíveis"
+        exit 1
+        ;;
+esac
