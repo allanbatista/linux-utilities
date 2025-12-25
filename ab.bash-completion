@@ -1,0 +1,36 @@
+# Bash completion for ab command
+# Source this file or copy to /etc/bash_completion.d/ab
+
+_ab_completions() {
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+    local prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    # Subcomandos disponíveis
+    local commands="auto-commit pr-description prompt passgenerator help"
+
+    # Se estamos no primeiro argumento, completar com subcomandos
+    if [ "$COMP_CWORD" -eq 1 ]; then
+        COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+        return 0
+    fi
+
+    # Completar opções baseado no subcomando
+    case "${COMP_WORDS[1]}" in
+        auto-commit)
+            COMPREPLY=($(compgen -W "-y --yes -a --add -h --help" -- "$cur"))
+            ;;
+        pr-description)
+            COMPREPLY=($(compgen -W "-b --base -c --create -d --draft -y --yes -h --help" -- "$cur"))
+            ;;
+        prompt)
+            COMPREPLY=($(compgen -W "-p --prompt --model --only-output --json --lang -s --specialist -h --help" -- "$cur"))
+            ;;
+        passgenerator)
+            COMPREPLY=($(compgen -W "--no-letters --no-digits --no-punct --min-letters --min-digits --min-punct --allow-sequences --allow-repeated" -- "$cur"))
+            ;;
+    esac
+
+    return 0
+}
+
+complete -F _ab_completions ab
