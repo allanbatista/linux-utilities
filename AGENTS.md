@@ -1,30 +1,140 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-The repository ships three CLIs. `project-manager` is the Python entry point for the `pm` package (`pm/cli`, `pm/core`, `pm/ai`, `pm/utils`) that drives plan management and AI-assisted workflows; runtime artefacts land in `.project-manager/`. `prompt` is a standalone Python tool for bundling file context and sending it to LLM providers, using `~/.prompt/config.json` for provider defaults. `passgenerator` is a Bash utility for localized password generation. Keep auxiliary assets next to the tool they support and leave `.project-manager/logs` out of commits.
 
-## Build, Test, and Development Commands
-Create a virtual environment before hacking:
+O repositório contém utilitários CLI unificados sob o comando `ab`. Estrutura atual:
+
+```
+linux-utilities/
+├── ab                    # Comando principal (dispatcher)
+├── ab.bash-completion    # Autocompletion para bash
+├── auto-commit           # Gera mensagens de commit via LLM
+├── pr-description        # Gera título/descrição de PR via LLM
+├── prompt                # Wrapper bash para prompt.py
+├── prompt.py             # CLI para enviar contexto ao OpenRouter
+├── passgenerator         # Gerador de senhas seguras
+└── requirements.txt      # Dependências Python
+```
+
+Configurações do usuário ficam em `~/.prompt/config.json`. Histórico de chamadas em `~/.prompt/history/`.
+
+## Comandos Disponíveis
+
+### ab (comando unificado)
 ```bash
+ab <subcomando> [opções]
+
+# Subcomandos:
+ab auto-commit      # Gera mensagem de commit via LLM
+ab pr-description   # Gera título/descrição de PR via LLM
+ab prompt           # Envia contexto para LLM (OpenRouter)
+ab passgenerator    # Gerador de senhas seguras
+ab help             # Mostra ajuda
+```
+
+### auto-commit
+Gera mensagens de commit automaticamente analisando o diff staged.
+```bash
+ab auto-commit              # Gera mensagem e confirma
+ab auto-commit -a           # Adiciona todos os arquivos (git add -A)
+ab auto-commit -y           # Pula confirmação
+ab auto-commit -a -y        # Adiciona tudo e commita sem confirmar
+```
+
+### pr-description
+Gera título e descrição de PR analisando commits e diff relativos à branch base.
+```bash
+ab pr-description              # Gera título e descrição
+ab pr-description -c           # Gera e cria PR via gh CLI
+ab pr-description -c -d        # Cria como draft
+ab pr-description -b develop   # Especifica branch base
+ab pr-description -c -y        # Cria PR sem confirmar
+```
+
+### prompt
+Envia contexto de arquivos para o OpenRouter e retorna resposta do LLM.
+```bash
+ab prompt -p "pergunta"                    # Envia prompt simples
+ab prompt arquivo.py -p "explique"         # Envia arquivo como contexto
+ab prompt src/ -p "resuma o código"        # Envia diretório inteiro
+ab prompt --model "openai/gpt-4o" -p "oi"  # Especifica modelo
+ab prompt --only-output -p "oi"            # Retorna apenas resposta
+ab prompt --set-default-model "modelo"     # Define modelo padrão
+```
+
+### passgenerator
+Gera senhas seguras com validações.
+```bash
+ab passgenerator 16                    # Senha de 16 caracteres
+ab passgenerator 20 --min-digits 4     # Mínimo 4 dígitos
+ab passgenerator 12 --no-punct         # Sem pontuação
+```
+
+## Instalação
+
+```bash
+# Clonar repositório
+git clone <repo-url>
+cd linux-utilities
+
+# Instalar dependências Python
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+
+# Adicionar ao PATH (opcional)
+sudo ln -s $(pwd)/ab /usr/local/bin/ab
+
+# Ativar autocompletion
+mkdir -p ~/.local/share/bash-completion/completions
+ln -s $(pwd)/ab.bash-completion ~/.local/share/bash-completion/completions/ab
 ```
-Exercise the Project Manager CLI via `./project-manager init`, `./project-manager plan list`, and `./project-manager validate <plan>`, and enable AI planning with `./project-manager plan create --ai`. For the prompt helper, run `python prompt --help` or `python prompt --set-default-model gpt-4o-mini`. Quick-check the Bash tool with `./passgenerator 16 --min-digits 2`.
+
+## Configuração
+
+### OpenRouter API Key
+```bash
+export OPENROUTER_API_KEY="sua-chave-aqui"
+```
+
+### Config persistente (~/.prompt/config.json)
+```json
+{
+  "model": "nvidia/nemotron-3-nano-30b-a3b:free",
+  "api_base": "https://openrouter.ai/api/v1",
+  "api_key_env": "OPENROUTER_API_KEY",
+  "request": { "timeout_seconds": 300 }
+}
+```
+
+## Seleção Automática de Modelo
+
+Os scripts `auto-commit` e `pr-description` selecionam automaticamente o modelo baseado no tamanho do diff:
+
+| Tokens estimados | Modelo |
+|------------------|--------|
+| ≤ 128k | `nvidia/nemotron-3-nano-30b-a3b:free` |
+| ≤ 256k | `openai/gpt-5-nano` |
+| > 256k | `x-ai/grok-4.1-fast` |
 
 ## Coding Style & Naming Conventions
-Follow PEP 8, 4-space indents, and `snake_case` for modules, functions, and Click command names. Keep CLI options kebab-cased and mirror the existing help text tone in `pm/cli/commands.py`. Prefer type hints in new Python code and rely on `rich` formatters for structured output instead of manual ANSI escapes. When touching Bash, stay POSIX-friendly and run `shellcheck passgenerator` locally if available.
 
-## Testing Guidelines
-Adopt `pytest` for automation; place test modules under `tests/` mirroring the source layout (e.g., `tests/cli/test_commands.py`). Use `click.testing.CliRunner` with temporary directories to isolate `.project-manager` artefacts. Target each new command or plan mutation path with at least one integration test, and record manual validation steps (CLI transcripts, API calls) in the pull request while a fuller suite is built out.
+- **Python**: PEP 8, 4-space indents, `snake_case` para funções
+- **Bash**: POSIX-friendly, usar `shellcheck` para validação
+- **CLI options**: kebab-case (`--only-output`, `--max-tokens`)
+- Type hints em código Python novo
 
 ## Commit & Pull Request Guidelines
-Use conventional commit prefixes (`feat:`, `fix:`, `chore:`) with imperative summaries, following the emerging pattern in `git log`. Reference related issues, keep commits scoped, and update docs alongside behavioural changes. Pull requests should include motivation, main changes, test evidence, and configuration updates, plus CLI transcripts or screenshots when adjusting interactive flows.
 
-## AI Planning Flow Notes
-- O modo `./project-manager plan create --ai` segue etapas visíveis (Descoberta → Síntese → Confirmação → Finalizado); observe o painel azul no terminal para saber o estágio atual.
-- O agente deve sempre gerar um preview com a ferramenta `preview_plan` antes de finalizar; use `/resumo` para reler a última versão.
-- Ajustes pontuais disparam o tool `update_plan_field` e exigem um novo preview antes de `finalize_plan`; verifique mensagens verdes/vermelhas para feedback.
-- Oriente usuários a `/ajuda` caso esqueçam os comandos rápidos; `cancelar` encerra a sessão com segurança.
+Use conventional commit prefixes (`feat:`, `fix:`, `chore:`) com resumos imperativos. O próprio `ab auto-commit` pode ser usado para gerar mensagens.
+
+```bash
+# Workflow recomendado
+ab auto-commit -a           # Gera e faz commit
+ab pr-description -c        # Gera e cria PR
+```
 
 ## Security & Configuration Tips
-Do not commit personal configs from `~/.prompt` or runtime files from `.project-manager/`. Load provider keys (e.g., `OPENAI_API_KEY`, `GEMINI_API_KEY`) from the environment, and avoid echoing secrets to logs. When sharing sample configs, redact tokens and use placeholders such as `YOUR_KEY_HERE`.
+
+- Não commitar `~/.prompt/config.json` ou arquivos com chaves
+- Carregar `OPENROUTER_API_KEY` do ambiente
+- Evitar ecoar secrets em logs
