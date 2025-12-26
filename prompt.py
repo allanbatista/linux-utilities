@@ -508,7 +508,7 @@ def main():
     parser.add_argument(
         "-p", "--prompt",
         type=str,
-        help="Um prompt opcional para enviar à API junto com o conteúdo dos arquivos."
+        help="Um prompt opcional para enviar à API. Use '-' para ler do stdin."
     )
     parser.add_argument(
         '--lang',
@@ -584,6 +584,10 @@ def main():
         sys.exit(1)
 
     args = parser.parse_args()
+
+    # Se prompt for '-', lê do stdin
+    if args.prompt == '-':
+        args.prompt = sys.stdin.read()
 
     global VERBOSE
     VERBOSE = not args.only_output

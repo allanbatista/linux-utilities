@@ -207,16 +207,15 @@ Responda APENAS com a mensagem de commit:
 EOF
 
 # Estima tokens e seleciona modelo
-PROMPT_CONTENT=$(cat "$PROMPT_FILE")
-ESTIMATED_TOKENS=$(estimate_tokens "$PROMPT_CONTENT")
+ESTIMATED_TOKENS=$(estimate_tokens "$(cat "$PROMPT_FILE")")
 SELECTED_MODEL=$(select_model "$ESTIMATED_TOKENS")
 
-# Executa o prompt e captura a mensagem
+# Executa o prompt e captura a mensagem (usa stdin para evitar "Argument list too long")
 log_info "Gerando mensagem de commit..."
 log_info "Tokens estimados: ~$ESTIMATED_TOKENS | Modelo: $SELECTED_MODEL"
 echo ""
 
-COMMIT_MSG=$("$PROMPT_CMD" --model "$SELECTED_MODEL" --max-completion-tokens -1 --only-output --prompt "$PROMPT_CONTENT")
+COMMIT_MSG=$("$PROMPT_CMD" --model "$SELECTED_MODEL" --max-completion-tokens -1 --only-output --prompt - < "$PROMPT_FILE")
 
 if [ -z "$COMMIT_MSG" ]; then
     log_error "Falha ao gerar mensagem de commit"
