@@ -14,3 +14,9 @@ pandas
 numpy
 
 crawl4ai
+
+# Prompt CLI dependencies
+requests
+pyperclip
+binaryornot>=0.4.4
+pathspec>=0.12.0

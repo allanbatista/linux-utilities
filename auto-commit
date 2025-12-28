@@ -60,23 +60,26 @@ log_error() {
 
 # Mostra ajuda
 show_help() {
-    echo "Uso: auto-commit [opções]"
+    echo "Usage: auto-commit [options]"
     echo ""
-    echo "Gera mensagem de commit automaticamente usando o utilitário prompt"
+    echo "Automatically generates commit messages using the prompt utility"
     echo ""
-    echo "Opções:"
-    echo "  -y, --yes             Pula confirmação do commit"
-    echo "  -a, --add             Adiciona todos os arquivos automaticamente"
-    echo "  -h, --help            Mostra esta ajuda"
+    echo "Options:"
+    echo "  -y, --yes             Skip commit confirmation"
+    echo "  -a, --add             Automatically stage all files"
+    echo "  -l, --lang LANG       Output language (default: en)"
+    echo "  -h, --help            Show this help"
     echo ""
-    echo "Exemplos:"
-    echo "  auto-commit                    # Gera mensagem e confirma"
-    echo "  auto-commit -y -a              # Adiciona tudo e commita sem confirmar"
+    echo "Examples:"
+    echo "  auto-commit                    # Generate message and confirm"
+    echo "  auto-commit -y -a              # Stage all and commit without confirmation"
+    echo "  auto-commit -l pt-br           # Generate message in Portuguese"
 }
 
 # Parse argumentos
 AUTO_ADD=false
 SKIP_CONFIRM=false
+LANG="en"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -88,12 +91,16 @@ while [[ $# -gt 0 ]]; do
             AUTO_ADD=true
             shift
             ;;
+        -l|--lang)
+            LANG="$2"
+            shift 2
+            ;;
         -h|--help)
             show_help
             exit 0
             ;;
         *)
-            log_error "Opção desconhecida: $1"
+            log_error "Unknown option: $1"
             show_help
             exit 1
             ;;
@@ -102,20 +109,20 @@ done
 
 # Verifica se está em um repositório git
 if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-    log_error "Não está em um repositório git"
+    log_error "Not inside a git repository"
     exit 1
 fi
 
 # Verifica se o prompt está disponível
 if [ ! -x "$PROMPT_CMD" ]; then
-    log_error "Utilitário 'prompt' não encontrado em $SCRIPT_DIR"
+    log_error "Utility 'prompt' not found at $SCRIPT_DIR"
     exit 1
 fi
 
 # Navega para a raiz do repositório
 cd "$(git rev-parse --show-toplevel)"
 
-log_info "Verificando alterações não commitadas..."
+log_info "Checking for uncommitted changes..."
 
 # Verifica se há alterações
 STAGED=$(git diff --cached --name-only)
@@ -123,13 +130,13 @@ UNSTAGED=$(git diff --name-only)
 UNTRACKED=$(git ls-files --others --exclude-standard)
 
 if [ -z "$STAGED" ] && [ -z "$UNSTAGED" ] && [ -z "$UNTRACKED" ]; then
-    log_warning "Não há alterações para commitar"
+    log_warning "No changes to commit"
     exit 0
 fi
 
 # Mostra resumo das alterações
 echo ""
-log_info "Resumo das alterações:"
+log_info "Changes summary:"
 
 if [ -n "$STAGED" ]; then
     echo -e "${GREEN}Staged:${NC}"
@@ -151,27 +158,27 @@ echo ""
 # Pergunta se deve adicionar arquivos não staged
 if [ -n "$UNSTAGED" ] || [ -n "$UNTRACKED" ]; then
     if [ "$AUTO_ADD" = true ]; then
-        log_info "Adicionando arquivos ao stage (--add)..."
+        log_info "Staging all files (--add)..."
         git add -A
     else
-        read -p "Adicionar todos os arquivos ao stage? (y/N) " -n 1 -r
+        read -p "Stage all files? (y/N) " -n 1 -r
         echo ""
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            log_info "Adicionando arquivos ao stage..."
+            log_info "Staging files..."
             git add -A
         elif [ -z "$STAGED" ]; then
-            log_warning "Nenhum arquivo no stage. Abortando."
+            log_warning "No files staged. Aborting."
             exit 0
         fi
     fi
 fi
 
 # Gera o diff para análise
-log_info "Gerando diff para análise..."
+log_info "Generating diff for analysis..."
 DIFF=$(git diff --cached)
 
 if [ -z "$DIFF" ]; then
-    log_warning "Nenhuma alteração no stage para commitar"
+    log_warning "No staged changes to commit"
     exit 0
 fi
 
@@ -183,27 +190,26 @@ PROMPT_FILE=$(mktemp)
 trap "rm -f $PROMPT_FILE" EXIT
 
 cat > "$PROMPT_FILE" << EOF
-Analise as alterações git abaixo e gere APENAS a mensagem de commit, sem explicações adicionais.
+Analyze the git changes below and generate ONLY the commit message, without additional explanations.
 
-REGRAS:
-1. Responda SOMENTE com a mensagem de commit, nada mais
-2. Use português brasileiro
-3. Seja conciso e descritivo
-4. Primeira linha: resumo em até 100 caracteres (se possível)
-5. Se necessário, adicione detalhes após linha em branco
-6. a mensagem de commit deve ser em US-en
-7. use bullet points para o conteúdo após a primeira linha
+RULES:
+1. Respond ONLY with the commit message, nothing else
+2. Write in language: $LANG
+3. Be concise and descriptive
+4. First line: summary up to 100 characters (if possible)
+5. If needed, add details after a blank line
+6. Use bullet points for content after the first line
 
-COMMITS RECENTES (referência de estilo):
+RECENT COMMITS (style reference):
 $RECENT_COMMITS
 
-ARQUIVOS ALTERADOS:
+FILES CHANGED:
 $(git diff --cached --name-status)
 
 DIFF:
 $DIFF
 
-Responda APENAS com a mensagem de commit:
+Respond ONLY with the commit message:
 EOF
 
 # Estima tokens e seleciona modelo
@@ -211,19 +217,19 @@ ESTIMATED_TOKENS=$(estimate_tokens "$(cat "$PROMPT_FILE")")
 SELECTED_MODEL=$(select_model "$ESTIMATED_TOKENS")
 
 # Executa o prompt e captura a mensagem (usa stdin para evitar "Argument list too long")
-log_info "Gerando mensagem de commit..."
-log_info "Tokens estimados: ~$ESTIMATED_TOKENS | Modelo: $SELECTED_MODEL"
+log_info "Generating commit message..."
+log_info "Estimated tokens: ~$ESTIMATED_TOKENS | Model: $SELECTED_MODEL | Lang: $LANG"
 echo ""
 
-COMMIT_MSG=$("$PROMPT_CMD" --model "$SELECTED_MODEL" --max-completion-tokens -1 --only-output --prompt - < "$PROMPT_FILE")
+COMMIT_MSG=$("$PROMPT_CMD" --model "$SELECTED_MODEL" --lang "$LANG" --max-completion-tokens -1 --only-output --prompt - < "$PROMPT_FILE")
 
 if [ -z "$COMMIT_MSG" ]; then
-    log_error "Falha ao gerar mensagem de commit"
+    log_error "Failed to generate commit message"
     exit 1
 fi
 
 # Mostra a mensagem gerada
-echo -e "${GREEN}Mensagem de commit gerada:${NC}"
+echo -e "${GREEN}Generated commit message:${NC}"
 echo "----------------------------------------"
 echo "$COMMIT_MSG"
 echo "----------------------------------------"
@@ -231,19 +237,19 @@ echo ""
 
 # Confirma o commit
 if [ "$SKIP_CONFIRM" = false ]; then
-    read -p "Confirmar commit com esta mensagem? (Y/n) " -n 1 -r
+    read -p "Confirm commit with this message? (Y/n) " -n 1 -r
     echo ""
 
     if [[ $REPLY =~ ^[Nn]$ ]]; then
-        log_warning "Commit cancelado"
+        log_warning "Commit cancelled"
         exit 0
     fi
 fi
 
 # Executa o commit
-log_info "Executando commit..."
+log_info "Committing..."
 git commit -m "$COMMIT_MSG"
 
 echo ""
-log_success "Commit realizado com sucesso!"
-log_info "Último commit: $(git log -1 --oneline)"
+log_success "Commit successful!"
+log_info "Latest commit: $(git log -1 --oneline)"

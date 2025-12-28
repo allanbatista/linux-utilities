@@ -82,22 +82,24 @@ detect_base_branch() {
 
 # Mostra ajuda
 show_help() {
-    echo "Uso: pr-description [opções]"
+    echo "Usage: pr-description [options]"
     echo ""
-    echo "Gera título e descrição de PR automaticamente usando o utilitário prompt"
+    echo "Automatically generates PR title and description using the prompt utility"
     echo ""
-    echo "Opções:"
-    echo "  -b, --base BRANCH     Branch base (default: auto-detect main/master)"
-    echo "  -c, --create          Cria PR usando gh CLI"
-    echo "  -d, --draft           Cria como draft (requer -c)"
-    echo "  -y, --yes             Pula confirmação"
-    echo "  -h, --help            Mostra esta ajuda"
+    echo "Options:"
+    echo "  -b, --base BRANCH     Base branch (default: auto-detect main/master)"
+    echo "  -c, --create          Create PR using gh CLI"
+    echo "  -d, --draft           Create as draft (requires -c)"
+    echo "  -l, --lang LANG       Output language (default: en)"
+    echo "  -y, --yes             Skip confirmation"
+    echo "  -h, --help            Show this help"
     echo ""
-    echo "Exemplos:"
-    echo "  pr-description                    # Gera título e descrição"
-    echo "  pr-description -c                 # Gera e cria PR"
-    echo "  pr-description -c -d              # Cria PR como draft"
-    echo "  pr-description -b develop -c -y   # Cria PR para develop sem confirmar"
+    echo "Examples:"
+    echo "  pr-description                    # Generate title and description"
+    echo "  pr-description -c                 # Generate and create PR"
+    echo "  pr-description -c -d              # Create PR as draft"
+    echo "  pr-description -b develop -c -y   # Create PR to develop without confirmation"
+    echo "  pr-description -l pt-br           # Generate in Portuguese"
 }
 
 # Parse argumentos
@@ -105,6 +107,7 @@ BASE_BRANCH=""
 CREATE_PR=false
 IS_DRAFT=false
 SKIP_CONFIRM=false
+LANG="en"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -120,6 +123,10 @@ while [[ $# -gt 0 ]]; do
             IS_DRAFT=true
             shift
             ;;
+        -l|--lang)
+            LANG="$2"
+            shift 2
+            ;;
         -y|--yes)
             SKIP_CONFIRM=true
             shift
@@ -129,7 +136,7 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            log_error "Opção desconhecida: $1"
+            log_error "Unknown option: $1"
             show_help
             exit 1
             ;;
@@ -138,26 +145,26 @@ done
 
 # Verifica se está em um repositório git
 if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-    log_error "Não está em um repositório git"
+    log_error "Not inside a git repository"
     exit 1
 fi
 
 # Verifica se o prompt está disponível
 if [ ! -x "$PROMPT_CMD" ]; then
-    log_error "Utilitário 'prompt' não encontrado em $SCRIPT_DIR"
+    log_error "Utility 'prompt' not found at $SCRIPT_DIR"
     exit 1
 fi
 
 # Verifica se gh está instalado (se --create)
 if [ "$CREATE_PR" = true ]; then
     if ! command -v gh &> /dev/null; then
-        log_error "gh CLI não está instalado. Instale com: sudo apt install gh"
+        log_error "gh CLI is not installed. Install with: sudo apt install gh"
         exit 1
     fi
 
     # Verifica autenticação do gh
     if ! gh auth status &> /dev/null; then
-        log_error "gh não está autenticado. Execute: gh auth login"
+        log_error "gh is not authenticated. Run: gh auth login"
         exit 1
     fi
 fi
@@ -169,7 +176,7 @@ cd "$(git rev-parse --show-toplevel)"
 if [ -z "$BASE_BRANCH" ]; then
     BASE_BRANCH=$(detect_base_branch)
     if [ -z "$BASE_BRANCH" ]; then
-        log_error "Não foi possível detectar branch base. Use -b para especificar."
+        log_error "Could not detect base branch. Use -b to specify."
         exit 1
     fi
 fi
@@ -177,12 +184,12 @@ fi
 # Obtém branch atual
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-log_info "Branch atual: $CURRENT_BRANCH"
-log_info "Branch base: $BASE_BRANCH"
+log_info "Current branch: $CURRENT_BRANCH"
+log_info "Base branch: $BASE_BRANCH"
 
 # Verifica se não está na branch base
 if [ "$CURRENT_BRANCH" = "$BASE_BRANCH" ]; then
-    log_error "Você está na branch base ($BASE_BRANCH). Crie uma feature branch primeiro."
+    log_error "You are on the base branch ($BASE_BRANCH). Create a feature branch first."
     exit 1
 fi
 
@@ -190,7 +197,7 @@ fi
 COMMITS_AHEAD=$(git rev-list --count "$BASE_BRANCH..$CURRENT_BRANCH" 2>/dev/null || echo "0")
 
 if [ "$COMMITS_AHEAD" = "0" ]; then
-    log_warning "Nenhum commit ahead de $BASE_BRANCH"
+    log_warning "No commits ahead of $BASE_BRANCH"
     exit 0
 fi
 
@@ -198,14 +205,14 @@ log_info "Commits ahead: $COMMITS_AHEAD"
 echo ""
 
 # Captura commits e diff
-log_info "Analisando alterações..."
+log_info "Analyzing changes..."
 
 COMMITS=$(git log --oneline "$BASE_BRANCH..$CURRENT_BRANCH" 2>/dev/null || echo "")
 DIFF=$(git diff "$BASE_BRANCH...$CURRENT_BRANCH" 2>/dev/null || echo "")
 FILES_CHANGED=$(git diff --name-status "$BASE_BRANCH...$CURRENT_BRANCH" 2>/dev/null || echo "")
 
 if [ -z "$DIFF" ]; then
-    log_warning "Nenhuma alteração detectada em relação a $BASE_BRANCH"
+    log_warning "No changes detected compared to $BASE_BRANCH"
     exit 0
 fi
 
@@ -214,15 +221,15 @@ PROMPT_FILE=$(mktemp)
 trap "rm -f $PROMPT_FILE" EXIT
 
 cat > "$PROMPT_FILE" << EOF
-Analise os commits e alterações abaixo e gere título e descrição para um Pull Request.
+Analyze the commits and changes below and generate title and description for a Pull Request.
 
-REGRAS:
-1. Responda EXATAMENTE no formato especificado abaixo
-2. Título: máximo 72 caracteres, conciso e descritivo, em inglês
-3. Descrição em inglês
-4. Use bullet points no Summary (2-4 pontos principais)
-5. Liste apenas os arquivos mais relevantes em Changes
-6. Sugira 2-4 testes em Testing
+RULES:
+1. Respond EXACTLY in the format specified below
+2. Title: maximum 72 characters, concise and descriptive
+3. Write in language: $LANG
+4. Use bullet points in Summary (2-4 main points)
+5. List only the most relevant files in Changes
+6. Suggest 2-4 tests in Testing
 
 BRANCH: $CURRENT_BRANCH
 BASE: $BASE_BRANCH
@@ -230,26 +237,26 @@ BASE: $BASE_BRANCH
 COMMITS:
 $COMMITS
 
-ARQUIVOS ALTERADOS:
+FILES CHANGED:
 $FILES_CHANGED
 
 DIFF:
 $DIFF
 
-FORMATO DE RESPOSTA (siga exatamente):
-TITLE: <título conciso aqui>
+RESPONSE FORMAT (follow exactly):
+TITLE: <concise title here>
 
 DESCRIPTION:
 ## Summary
-- ponto 1
-- ponto 2
+- point 1
+- point 2
 
 ## Changes
-- arquivo: descrição da alteração
+- file: change description
 
 ## Testing
-- [ ] teste 1
-- [ ] teste 2
+- [ ] test 1
+- [ ] test 2
 EOF
 
 # Estima tokens e seleciona modelo
@@ -257,14 +264,14 @@ ESTIMATED_TOKENS=$(estimate_tokens "$(cat "$PROMPT_FILE")")
 SELECTED_MODEL=$(select_model "$ESTIMATED_TOKENS")
 
 # Executa o prompt (usa stdin para evitar "Argument list too long")
-log_info "Gerando título e descrição do PR..."
-log_info "Tokens estimados: ~$ESTIMATED_TOKENS | Modelo: $SELECTED_MODEL"
+log_info "Generating PR title and description..."
+log_info "Estimated tokens: ~$ESTIMATED_TOKENS | Model: $SELECTED_MODEL | Lang: $LANG"
 echo ""
 
-RESPONSE=$("$PROMPT_CMD" --model "$SELECTED_MODEL" --max-completion-tokens -1 --only-output --prompt - < "$PROMPT_FILE")
+RESPONSE=$("$PROMPT_CMD" --model "$SELECTED_MODEL" --lang "$LANG" --max-completion-tokens -1 --only-output --prompt - < "$PROMPT_FILE")
 
 if [ -z "$RESPONSE" ]; then
-    log_error "Falha ao gerar descrição do PR"
+    log_error "Failed to generate PR description"
     exit 1
 fi
 
@@ -282,12 +289,12 @@ if [ -z "$PR_BODY" ]; then
 fi
 
 # Mostra resultado
-echo -e "${GREEN}Título do PR:${NC}"
+echo -e "${GREEN}PR Title:${NC}"
 echo "----------------------------------------"
 echo "$PR_TITLE"
 echo "----------------------------------------"
 echo ""
-echo -e "${GREEN}Descrição do PR:${NC}"
+echo -e "${GREEN}PR Description:${NC}"
 echo "----------------------------------------"
 echo "$PR_BODY"
 echo "----------------------------------------"
@@ -296,11 +303,11 @@ echo ""
 # Confirma ação
 if [ "$CREATE_PR" = true ]; then
     if [ "$SKIP_CONFIRM" = false ]; then
-        read -p "Criar PR com este conteúdo? (Y/n) " -n 1 -r
+        read -p "Create PR with this content? (Y/n) " -n 1 -r
         echo ""
 
         if [[ $REPLY =~ ^[Nn]$ ]]; then
-            log_warning "Criação do PR cancelada"
+            log_warning "PR creation cancelled"
             exit 0
         fi
     fi
@@ -312,18 +319,18 @@ if [ "$CREATE_PR" = true ]; then
     fi
 
     # Cria o PR
-    log_info "Criando PR..."
+    log_info "Creating PR..."
 
     PR_URL=$(gh pr create --title "$PR_TITLE" --body "$PR_BODY" --base "$BASE_BRANCH" $DRAFT_FLAG 2>&1)
 
     if [ $? -eq 0 ]; then
         echo ""
-        log_success "PR criado com sucesso!"
+        log_success "PR created successfully!"
         log_info "URL: $PR_URL"
     else
-        log_error "Falha ao criar PR: $PR_URL"
+        log_error "Failed to create PR: $PR_URL"
         exit 1
     fi
 else
-    log_info "Use -c para criar o PR automaticamente"
+    log_info "Use -c to create the PR automatically"
 fi

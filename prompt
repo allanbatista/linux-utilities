@@ -5,6 +5,13 @@ set -euo pipefail
 SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname -- "$SCRIPT_PATH")"
 
-# chame o Python "global" do sistema (evita pyenv/venv)
-exec /usr/bin/python3 "$SCRIPT_DIR/prompt.py" "$@"
+# usa o Python do virtualenv do projeto
+VENV_PYTHON="$SCRIPT_DIR/.venv/bin/python"
+
+if [[ -x "$VENV_PYTHON" ]]; then
+    exec "$VENV_PYTHON" "$SCRIPT_DIR/prompt.py" "$@"
+else
+    # fallback para Python do sistema se venv não existir
+    exec /usr/bin/python3 "$SCRIPT_DIR/prompt.py" "$@"
+fi
 

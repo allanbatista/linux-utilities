@@ -22,7 +22,11 @@ import requests
 import pyperclip
 import datetime
 import sys
-from typing import Optional, Tuple, Dict, Any
+import subprocess
+from typing import Optional, Tuple, Dict, Any, List
+
+from binaryornot.check import is_binary
+import pathspec
 
 VERBOSE = True
 
@@ -246,7 +250,7 @@ def save_to_history(full_prompt: str, response_text: str, result: Dict[str, Any]
                 "language": args.lang if hasattr(args, 'lang') else 'pt-br',
                 "max_tokens": args.max_tokens if hasattr(args, 'max_tokens') else None,
                 "max_tokens_doc": args.max_tokens_doc if hasattr(args, 'max_tokens_doc') else None,
-                "max_completion_tokens": args.max_completion_tokens if hasattr(args, 'max_completion_tokens') else 256,
+                "max_completion_tokens": 0 if getattr(args, 'unlimited', False) else (args.max_completion_tokens if hasattr(args, 'max_completion_tokens') else 16000),
                 "path_format": (
                     'relative' if args.relative_paths else
                     'name_only' if args.filename_only else
@@ -403,6 +407,134 @@ def cleanup_old_history(history_dir: pathlib.Path, keep_last: int = 100) -> None
 
 
 # =========================
+# Detecção de Binários
+# =========================
+
+def is_binary_file(file_path: pathlib.Path) -> bool:
+    """
+    Detecta se um arquivo é binário usando a biblioteca binaryornot.
+
+    Args:
+        file_path: Caminho do arquivo a verificar.
+
+    Returns:
+        True se o arquivo é binário, False se é texto.
+    """
+    try:
+        return is_binary(str(file_path))
+    except Exception:
+        return True  # Se não conseguir ler, assume binário
+
+
+# =========================
+# Suporte a .aiignore
+# =========================
+
+def find_git_root(start_path: pathlib.Path) -> Optional[pathlib.Path]:
+    """
+    Encontra a raiz do repositório git a partir do caminho inicial.
+
+    Args:
+        start_path: Caminho inicial para busca.
+
+    Returns:
+        Caminho da raiz do git ou None se não estiver em um repositório.
+    """
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--show-toplevel'],
+            capture_output=True, text=True, cwd=str(start_path)
+        )
+        if result.returncode == 0:
+            return pathlib.Path(result.stdout.strip())
+    except Exception:
+        pass
+    return None
+
+
+def find_aiignore_files(start_path: pathlib.Path) -> List[pathlib.Path]:
+    """
+    Procura arquivos .aiignore do diretório inicial até a raiz do git.
+
+    Args:
+        start_path: Caminho inicial para busca.
+
+    Returns:
+        Lista de caminhos de arquivos .aiignore encontrados (do mais específico ao mais geral).
+    """
+    aiignore_files = []
+    current = start_path.resolve()
+    git_root = find_git_root(current)
+
+    while current != current.parent:
+        aiignore_path = current / '.aiignore'
+        if aiignore_path.exists() and aiignore_path.is_file():
+            aiignore_files.append(aiignore_path)
+
+        # Para na raiz do git se encontrada
+        if git_root and current == git_root:
+            break
+
+        current = current.parent
+
+    return aiignore_files
+
+
+def load_aiignore_spec(aiignore_files: List[pathlib.Path]) -> Optional[pathspec.GitIgnoreSpec]:
+    """
+    Carrega e combina padrões de múltiplos arquivos .aiignore.
+
+    Args:
+        aiignore_files: Lista de caminhos de .aiignore (do mais específico ao mais geral).
+
+    Returns:
+        Spec combinado ou None se não houver padrões.
+    """
+    all_patterns = []
+
+    # Processa do mais geral (raiz) para o mais específico
+    for aiignore_path in reversed(aiignore_files):
+        try:
+            with open(aiignore_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            all_patterns.extend(lines)
+        except Exception as e:
+            pp(f"Aviso: Erro ao ler {aiignore_path}: {e}")
+
+    if not all_patterns:
+        return None
+
+    return pathspec.GitIgnoreSpec.from_lines(all_patterns)
+
+
+def should_ignore_path(
+    file_path: pathlib.Path,
+    spec: Optional[pathspec.GitIgnoreSpec],
+    base_path: pathlib.Path
+) -> bool:
+    """
+    Verifica se um arquivo deve ser ignorado com base nos padrões .aiignore.
+
+    Args:
+        file_path: Caminho absoluto do arquivo.
+        spec: Spec compilado do GitIgnore (ou None).
+        base_path: Caminho base para cálculo de caminho relativo.
+
+    Returns:
+        True se o arquivo deve ser ignorado.
+    """
+    if spec is None:
+        return False
+
+    try:
+        rel_path = file_path.relative_to(base_path)
+        return spec.match_file(str(rel_path))
+    except ValueError:
+        # file_path não é relativo a base_path
+        return spec.match_file(str(file_path))
+
+
+# =========================
 # Processamento de Arquivos
 # =========================
 
@@ -485,16 +617,11 @@ def resolve_settings(args, config: Dict[str, Any]) -> Dict[str, Any]:
 
 def main():
     """Função principal que orquestra a execução do script."""
-    ALLOWED_EXTENSIONS = {
-        '.txt', '.py', '.rb', '.rs', '.html', '.css', '.js', '.ts', '.cs',
-        '.sh', '.md', '.c', '.cpp', '.hpp', '.h', '.json', '.yml', '.yaml',
-        '.jsonl', '.xml', '.scss'
-    }
-
     parser = argparse.ArgumentParser(
         description=(
-            "Concatena o conteúdo de arquivos com extensões permitidas e "
-            "opcionalmente envia para a API do OpenRouter."
+            "Concatena o conteúdo de arquivos de texto (ignora binários) e "
+            "opcionalmente envia para a API do OpenRouter.\n"
+            "Use .aiignore para excluir arquivos (sintaxe igual ao .gitignore)."
         ),
         formatter_class=argparse.RawTextHelpFormatter
     )
@@ -544,10 +671,15 @@ def main():
         help='Nome do modelo OpenRouter a ser usado. Ex: nvidia/nemotron-3-nano-30b-a3b:free'
     )
     parser.add_argument(
-        '--max-completion-tokens',
+        '-m', '--max-completion-tokens',
         type=int,
-        default=256,
-        help='Número máximo de tokens para a resposta do modelo. Padrão: 256'
+        default=16000,
+        help='Número máximo de tokens para a resposta do modelo. Padrão: 16000'
+    )
+    parser.add_argument(
+        '-u', '--unlimited',
+        action='store_true',
+        help='Remove o limite de tokens da resposta (não envia max_tokens para a API)'
     )
     parser.add_argument(
         '--set-default-model',
@@ -612,6 +744,12 @@ def main():
     elif args.filename_only:
         path_format_option = 'name_only'
 
+    # Carrega padrões .aiignore
+    aiignore_files = find_aiignore_files(pathlib.Path.cwd())
+    aiignore_spec = load_aiignore_spec(aiignore_files)
+    if aiignore_files:
+        pp(f"Carregado .aiignore de: {', '.join(str(f) for f in aiignore_files)}")
+
     all_files_content = []
     total_word_count = 0
     total_estimated_tokens = 0
@@ -624,37 +762,52 @@ def main():
             pp(f"Aviso: O caminho '{path_arg}' não existe. Pulando.")
             continue
 
+        base_path = path_arg.resolve() if path_arg.is_dir() else path_arg.parent.resolve()
+
         if path_arg.is_file():
-            if path_arg.suffix in ALLOWED_EXTENSIONS:
-                content, word_count, estimated_tokens = process_file(path_arg, path_format_option, args.max_tokens_doc)
-                pp(f"Processando arquivo: {path_arg.resolve()} ({word_count} palavras, ~{estimated_tokens} tokens)")
-                if content.startswith("// error_processing_file"):
-                    files_error_count += 1
-                else:
-                    files_processed_count += 1
-                    total_word_count += word_count
-                    total_estimated_tokens += estimated_tokens
-                all_files_content.append(content)
-            else:
-                pp(f"Aviso: Arquivo com extensão não permitida '{path_arg.suffix}' foi ignorado: {path_arg}")
+            # Verifica .aiignore
+            if should_ignore_path(path_arg.resolve(), aiignore_spec, base_path):
+                pp(f"Ignorado por .aiignore: {path_arg}")
                 files_skipped_count += 1
-        
+                continue
+            # Verifica se é binário
+            if is_binary_file(path_arg):
+                pp(f"Ignorado (binário): {path_arg}")
+                files_skipped_count += 1
+                continue
+            # Processa arquivo de texto
+            content, word_count, estimated_tokens = process_file(path_arg, path_format_option, args.max_tokens_doc)
+            pp(f"Processando arquivo: {path_arg.resolve()} ({word_count} palavras, ~{estimated_tokens} tokens)")
+            if content.startswith("// error_processing_file"):
+                files_error_count += 1
+            else:
+                files_processed_count += 1
+                total_word_count += word_count
+                total_estimated_tokens += estimated_tokens
+            all_files_content.append(content)
+
         elif path_arg.is_dir():
             pp(f"Processando diretório: {path_arg.resolve()}")
             for child_path in path_arg.rglob('*'):
                 if child_path.is_file():
-                    if child_path.suffix in ALLOWED_EXTENSIONS:
-                        content, word_count, estimated_tokens = process_file(child_path, path_format_option, args.max_tokens_doc)
-                        pp(f"  -> Processando: {child_path.relative_to(path_arg)} ({word_count} palavras, ~{estimated_tokens} tokens)")
-                        if content.startswith("// error_processing_file"):
-                            files_error_count += 1
-                        else:
-                            files_processed_count += 1
-                            total_word_count += word_count
-                            total_estimated_tokens += estimated_tokens
-                        all_files_content.append(content)
-                    else:
+                    # Verifica .aiignore
+                    if should_ignore_path(child_path.resolve(), aiignore_spec, base_path):
                         files_skipped_count += 1
+                        continue
+                    # Verifica se é binário
+                    if is_binary_file(child_path):
+                        files_skipped_count += 1
+                        continue
+                    # Processa arquivo de texto
+                    content, word_count, estimated_tokens = process_file(child_path, path_format_option, args.max_tokens_doc)
+                    pp(f"  -> Processando: {child_path.relative_to(path_arg)} ({word_count} palavras, ~{estimated_tokens} tokens)")
+                    if content.startswith("// error_processing_file"):
+                        files_error_count += 1
+                    else:
+                        files_processed_count += 1
+                        total_word_count += word_count
+                        total_estimated_tokens += estimated_tokens
+                    all_files_content.append(content)
         else:
             pp(f"Aviso: O caminho '{path_arg}' não é um arquivo nem um diretório. Pulando.")
 
@@ -664,7 +817,7 @@ def main():
     if not final_text and not args.prompt:
         pp("\nNenhum arquivo válido foi encontrado ou processado.")
         if files_skipped_count > 0:
-            pp(f"{files_skipped_count} arquivo(s) foram ignorados devido à extensão não permitida.")
+            pp(f"{files_skipped_count} arquivo(s) foram ignorados (binários ou .aiignore).")
         return
 
     original_total_tokens = len(final_text) // 4
@@ -681,9 +834,10 @@ def main():
         api_key_env = settings["api_key_env"]
         api_base = settings["api_base"]
 
+        max_tokens = 0 if args.unlimited else args.max_completion_tokens
         result = send_to_openrouter(
             args.prompt, final_text, args.lang, args.specialist,
-            model, timeout_s, args.max_completion_tokens,
+            model, timeout_s, max_tokens,
             api_key_env=api_key_env, api_base=api_base
         )
 
@@ -743,7 +897,7 @@ def main():
             pyperclip.copy(final_text)
             pp(f"\nProcessado(s) {files_processed_count} arquivo(s) com sucesso ({total_word_count} palavras, ~{total_estimated_tokens} tokens no total).")
             if files_skipped_count > 0:
-                 pp(f"{files_skipped_count} arquivo(s) foram ignorados devido à extensão não permitida.")
+                 pp(f"{files_skipped_count} arquivo(s) foram ignorados (binários ou .aiignore).")
             if files_error_count > 0:
                 pp(f"Encontrados erros em {files_error_count} arquivo(s).")
             pp("✅ O conteúdo combinado foi copiado para a sua área de transferência!")
