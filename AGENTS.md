@@ -7,6 +7,8 @@ O repositório contém utilitários CLI unificados sob o comando `ab`. Estrutura
 ```
 linux-utilities/
 ├── ab                    # Comando principal (dispatcher)
+├── ab-git                # Sub-dispatcher para comandos git
+├── ab-util               # Sub-dispatcher para utilitários
 ├── ab.bash-completion    # Autocompletion para bash
 ├── auto-commit           # Gera mensagens de commit via LLM
 ├── pr-description        # Gera título/descrição de PR via LLM
@@ -23,64 +25,59 @@ Configurações do usuário ficam em `~/.prompt/config.json`. Histórico de cham
 
 ### ab (comando unificado)
 ```bash
-ab <subcomando> [opções]
+ab <categoria|comando> [argumentos...]
 
-# Subcomandos:
-ab auto-commit      # Gera mensagem de commit via LLM
-ab pr-description   # Gera título/descrição de PR via LLM
-ab rewrite-history  # Reescreve mensagens de commit via LLM
-ab prompt           # Envia contexto para LLM (OpenRouter)
-ab passgenerator    # Gerador de senhas seguras
-ab help             # Mostra ajuda
+# Categorias:
+ab git <comando>        # Utilitários git powered by LLM
+ab util <comando>       # Utilitários gerais
+
+# Comandos raiz:
+ab prompt               # Envia contexto para LLM (OpenRouter)
+ab help                 # Mostra ajuda
 ```
 
-### auto-commit
+### ab git (comandos git)
+```bash
+ab git auto-commit      # Gera mensagem de commit via LLM
+ab git pr-description   # Gera título/descrição de PR via LLM
+ab git rewrite-history  # Reescreve mensagens de commit via LLM
+ab git help             # Mostra ajuda da categoria
+```
+
+### ab util (utilitários)
+```bash
+ab util passgenerator   # Gerador de senhas seguras
+ab util help            # Mostra ajuda da categoria
+```
+
+### ab git auto-commit
 Gera mensagens de commit automaticamente analisando o diff staged.
 ```bash
-ab auto-commit              # Gera mensagem e confirma
-ab auto-commit -a           # Adiciona todos os arquivos (git add -A)
-ab auto-commit -y           # Pula confirmação
-ab auto-commit -a -y        # Adiciona tudo e commita sem confirmar
+ab git auto-commit              # Gera mensagem e confirma
+ab git auto-commit -a           # Adiciona todos os arquivos (git add -A)
+ab git auto-commit -y           # Pula confirmação
+ab git auto-commit -a -y        # Adiciona tudo e commita sem confirmar
 ```
 
-### pr-description
+### ab git pr-description
 Gera título e descrição de PR analisando commits e diff relativos à branch base.
 ```bash
-ab pr-description              # Gera título e descrição
-ab pr-description -c           # Gera e cria PR via gh CLI
-ab pr-description -c -d        # Cria como draft
-ab pr-description -b develop   # Especifica branch base
-ab pr-description -c -y        # Cria PR sem confirmar
+ab git pr-description              # Gera título e descrição
+ab git pr-description -c           # Gera e cria PR via gh CLI
+ab git pr-description -c -d        # Cria como draft
+ab git pr-description -b develop   # Especifica branch base
+ab git pr-description -c -y        # Cria PR sem confirmar
 ```
 
-### prompt
-Envia contexto de arquivos para o OpenRouter e retorna resposta do LLM.
-```bash
-ab prompt -p "pergunta"                    # Envia prompt simples
-ab prompt arquivo.py -p "explique"         # Envia arquivo como contexto
-ab prompt src/ -p "resuma o código"        # Envia diretório inteiro
-ab prompt --model "openai/gpt-4o" -p "oi"  # Especifica modelo
-ab prompt --only-output -p "oi"            # Retorna apenas resposta
-ab prompt --set-default-model "modelo"     # Define modelo padrão
-```
-
-### passgenerator
-Gera senhas seguras com validações.
-```bash
-ab passgenerator 16                    # Senha de 16 caracteres
-ab passgenerator 20 --min-digits 4     # Mínimo 4 dígitos
-ab passgenerator 12 --no-punct         # Sem pontuação
-```
-
-### rewrite-history
+### ab git rewrite-history
 Reescreve mensagens de commit do histórico git usando LLM.
 ```bash
-ab rewrite-history                     # Menu interativo para escolher modo
-ab rewrite-history --dry-run           # Preview sem aplicar mudanças
-ab rewrite-history HEAD~5..HEAD        # Reescreve últimos 5 commits
-ab rewrite-history -y -l pt-br         # Batch mode em português
-ab rewrite-history --force-all         # Força reescrita de todos
-ab rewrite-history --smart             # LLM decide quais precisam reescrita
+ab git rewrite-history                     # Menu interativo para escolher modo
+ab git rewrite-history --dry-run           # Preview sem aplicar mudanças
+ab git rewrite-history HEAD~5..HEAD        # Reescreve últimos 5 commits
+ab git rewrite-history -y -l pt-br         # Batch mode em português
+ab git rewrite-history --force-all         # Força reescrita de todos
+ab git rewrite-history --smart             # LLM decide quais precisam reescrita
 ```
 
 **Modos de operação:**
@@ -92,6 +89,25 @@ ab rewrite-history --smart             # LLM decide quais precisam reescrita
 - Cria branch de backup antes de alterar (`backup/pre-rewrite-TIMESTAMP`)
 - Warning se commits já foram pushados (requer force push)
 - Modo `--dry-run` para preview completo
+
+### ab prompt
+Envia contexto de arquivos para o OpenRouter e retorna resposta do LLM.
+```bash
+ab prompt -p "pergunta"                    # Envia prompt simples
+ab prompt arquivo.py -p "explique"         # Envia arquivo como contexto
+ab prompt src/ -p "resuma o código"        # Envia diretório inteiro
+ab prompt --model "openai/gpt-4o" -p "oi"  # Especifica modelo
+ab prompt --only-output -p "oi"            # Retorna apenas resposta
+ab prompt --set-default-model "modelo"     # Define modelo padrão
+```
+
+### ab util passgenerator
+Gera senhas seguras com validações.
+```bash
+ab util passgenerator 16                    # Senha de 16 caracteres
+ab util passgenerator 20 --min-digits 4     # Mínimo 4 dígitos
+ab util passgenerator 12 --no-punct         # Sem pontuação
+```
 
 ## Instalação
 
@@ -148,12 +164,12 @@ Os scripts `auto-commit`, `pr-description` e `rewrite-history` selecionam automa
 
 ## Commit & Pull Request Guidelines
 
-Use conventional commit prefixes (`feat:`, `fix:`, `chore:`) com resumos imperativos. O próprio `ab auto-commit` pode ser usado para gerar mensagens.
+Use conventional commit prefixes (`feat:`, `fix:`, `chore:`) com resumos imperativos. O próprio `ab git auto-commit` pode ser usado para gerar mensagens.
 
 ```bash
 # Workflow recomendado
-ab auto-commit -a           # Gera e faz commit
-ab pr-description -c        # Gera e cria PR
+ab git auto-commit -a           # Gera e faz commit
+ab git pr-description -c        # Gera e cria PR
 ```
 
 ## Security & Configuration Tips

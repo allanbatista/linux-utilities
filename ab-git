@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname -- "$SCRIPT_PATH")"
+
+show_help() {
+    echo "ab git - Git utilities powered by LLM"
+    echo ""
+    echo "Uso: ab git <comando> [argumentos...]"
+    echo ""
+    echo "Comandos:"
+    echo "  auto-commit       Gera mensagem de commit via LLM"
+    echo "  pr-description    Gera titulo/descricao de PR via LLM"
+    echo "  rewrite-history   Reescreve mensagens de commit via LLM"
+    echo ""
+    echo "Use 'ab git <comando> --help' para mais detalhes"
+}
+
+if [ $# -eq 0 ]; then
+    show_help
+    exit 0
+fi
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+    help|-h|--help)
+        show_help
+        ;;
+    auto-commit|pr-description|rewrite-history)
+        exec "$SCRIPT_DIR/$COMMAND" "$@"
+        ;;
+    *)
+        echo "Erro: comando git '$COMMAND' desconhecido"
+        echo "Use 'ab git help' para ver comandos disponiveis"
+        exit 1
+        ;;
+esac

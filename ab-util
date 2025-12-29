@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname -- "$SCRIPT_PATH")"
+
+show_help() {
+    echo "ab util - General utilities"
+    echo ""
+    echo "Uso: ab util <comando> [argumentos...]"
+    echo ""
+    echo "Comandos:"
+    echo "  passgenerator     Gerador de senhas seguras"
+    echo ""
+    echo "Use 'ab util <comando> --help' para mais detalhes"
+}
+
+if [ $# -eq 0 ]; then
+    show_help
+    exit 0
+fi
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+    help|-h|--help)
+        show_help
+        ;;
+    passgenerator)
+        exec "$SCRIPT_DIR/$COMMAND" "$@"
+        ;;
+    *)
+        echo "Erro: comando util '$COMMAND' desconhecido"
+        echo "Use 'ab util help' para ver comandos disponiveis"
+        exit 1
+        ;;
+esac

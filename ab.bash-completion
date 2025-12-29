@@ -5,31 +5,70 @@ _ab_completions() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
     local prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    # Subcomandos disponíveis
-    local commands="auto-commit pr-description prompt passgenerator rewrite-history help"
+    # Categorias e comandos de nivel 1
+    local level1="git util prompt help"
 
-    # Se estamos no primeiro argumento, completar com subcomandos
+    # Comandos por categoria
+    local git_commands="auto-commit pr-description rewrite-history help"
+    local util_commands="passgenerator help"
+
+    # Opcoes por comando
+    local auto_commit_opts="-y --yes -a --add -l --lang -h --help"
+    local pr_description_opts="-b --base -c --create -d --draft -l --lang -y --yes -h --help"
+    local rewrite_history_opts="-y --yes -n --dry-run -l --lang --smart --force-all --skip-merges --include-merges --backup-branch -h --help"
+    local prompt_opts="-p --prompt --model --only-output --json --lang -s --specialist -h --help"
+    local passgenerator_opts="--no-letters --no-digits --no-punct --min-letters --min-digits --min-punct --allow-sequences --allow-repeated"
+
+    # Nivel 1: categorias e comandos raiz
     if [ "$COMP_CWORD" -eq 1 ]; then
-        COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+        COMPREPLY=($(compgen -W "$level1" -- "$cur"))
         return 0
     fi
 
-    # Completar opções baseado no subcomando
-    case "${COMP_WORDS[1]}" in
-        auto-commit)
-            COMPREPLY=($(compgen -W "-y --yes -a --add -h --help" -- "$cur"))
+    local category="${COMP_WORDS[1]}"
+
+    # Comando raiz: prompt
+    if [ "$category" = "prompt" ]; then
+        COMPREPLY=($(compgen -W "$prompt_opts" -- "$cur"))
+        return 0
+    fi
+
+    # Nivel 2: comandos da categoria
+    if [ "$COMP_CWORD" -eq 2 ]; then
+        case "$category" in
+            git)
+                COMPREPLY=($(compgen -W "$git_commands" -- "$cur"))
+                ;;
+            util)
+                COMPREPLY=($(compgen -W "$util_commands" -- "$cur"))
+                ;;
+        esac
+        return 0
+    fi
+
+    # Nivel 3+: opcoes do comando
+    local command="${COMP_WORDS[2]}"
+
+    case "$category" in
+        git)
+            case "$command" in
+                auto-commit)
+                    COMPREPLY=($(compgen -W "$auto_commit_opts" -- "$cur"))
+                    ;;
+                pr-description)
+                    COMPREPLY=($(compgen -W "$pr_description_opts" -- "$cur"))
+                    ;;
+                rewrite-history)
+                    COMPREPLY=($(compgen -W "$rewrite_history_opts" -- "$cur"))
+                    ;;
+            esac
             ;;
-        pr-description)
-            COMPREPLY=($(compgen -W "-b --base -c --create -d --draft -y --yes -h --help" -- "$cur"))
-            ;;
-        prompt)
-            COMPREPLY=($(compgen -W "-p --prompt --model --only-output --json --lang -s --specialist -h --help" -- "$cur"))
-            ;;
-        passgenerator)
-            COMPREPLY=($(compgen -W "--no-letters --no-digits --no-punct --min-letters --min-digits --min-punct --allow-sequences --allow-repeated" -- "$cur"))
-            ;;
-        rewrite-history)
-            COMPREPLY=($(compgen -W "-y --yes -n --dry-run -l --lang --smart --force-all --skip-merges --include-merges --backup-branch -h --help" -- "$cur"))
+        util)
+            case "$command" in
+                passgenerator)
+                    COMPREPLY=($(compgen -W "$passgenerator_opts" -- "$cur"))
+                    ;;
+            esac
             ;;
     esac
 

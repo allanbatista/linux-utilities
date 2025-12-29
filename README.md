@@ -1,4 +1,4 @@
-# Linux Utilities (ab)
+# Ai Linux Dev Utilities (ab)
 
 Unified CLI utilities for development workflows, powered by LLMs via OpenRouter.
 
@@ -8,7 +8,7 @@ Unified CLI utilities for development workflows, powered by LLMs via OpenRouter.
 
 ```bash
 # Clone the repository
-git clone git@github.com:allanbatista/ai-linux-utilities.git
+git clone git@github.com:allanbatista/ai-linux-dev-utilities.git
 cd linux-utilities
 
 # Run the installer
@@ -25,7 +25,7 @@ The installer will:
 
 ```bash
 # Clone the repository
-git clone git@github.com:allanbatista/ai-linux-utilities.git
+git clone git@github.com:allanbatista/ai-linux-dev-utilities.git
 cd linux-utilities
 
 # Create virtual environment and install dependencies
@@ -44,7 +44,7 @@ ln -s $(pwd)/ab.bash-completion ~/.local/share/bash-completion/completions/ab
 
 - Python 3.8+
 - `git` (for .aiignore git root detection)
-- `gh` CLI (optional, for `pr-description -c`)
+- `gh` CLI (optional, for `ab git pr-description -c`)
 
 ## Configuration
 
@@ -65,6 +65,24 @@ Create `~/.prompt/config.json`:
   "api_key_env": "OPENROUTER_API_KEY",
   "request": { "timeout_seconds": 300 }
 }
+```
+
+---
+
+## Command Structure
+
+Commands are organized into categories:
+
+```bash
+ab <category|command> [arguments...]
+
+# Categories:
+ab git <command>        # Git utilities powered by LLM
+ab util <command>       # General utilities
+
+# Root commands:
+ab prompt               # Send context to LLM (OpenRouter)
+ab help                 # Show help
 ```
 
 ---
@@ -165,12 +183,12 @@ The tool searches for `.aiignore` files from the current directory up to the git
 
 ---
 
-### ab auto-commit
+### ab git auto-commit
 
 Generate commit messages automatically by analyzing staged changes.
 
 ```bash
-ab auto-commit [OPTIONS]
+ab git auto-commit [OPTIONS]
 ```
 
 | Option | Description |
@@ -181,20 +199,20 @@ ab auto-commit [OPTIONS]
 
 ```bash
 # Generate and confirm commit message
-ab auto-commit
+ab git auto-commit
 
 # Stage all and commit without confirmation
-ab auto-commit -a -y
+ab git auto-commit -a -y
 ```
 
 ---
 
-### ab pr-description
+### ab git pr-description
 
 Generate pull request title and description by analyzing commits and diff.
 
 ```bash
-ab pr-description [OPTIONS]
+ab git pr-description [OPTIONS]
 ```
 
 | Option | Description |
@@ -207,26 +225,77 @@ ab pr-description [OPTIONS]
 
 ```bash
 # Generate PR description
-ab pr-description
+ab git pr-description
 
 # Create PR directly
-ab pr-description -c
+ab git pr-description -c
 
 # Create draft PR against develop
-ab pr-description -c -d -b develop
+ab git pr-description -c -d -b develop
 
 # Generate in Portuguese
-ab pr-description -l pt-br
+ab git pr-description -l pt-br
 ```
 
 ---
 
-### ab passgenerator
+### ab git rewrite-history
+
+Rewrite commit messages in git history using LLM.
+
+```bash
+ab git rewrite-history [OPTIONS] [RANGE]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run`, `-n` | Preview changes without applying |
+| `--smart` | LLM decides which commits need rewriting |
+| `--force-all` | Rewrite all commits in range |
+| `-y` | Skip confirmation prompts (batch mode) |
+| `-l LANG` | Output language (default: `en`) |
+| `--backup-branch NAME` | Custom backup branch name |
+| `--skip-merges` | Skip merge commits |
+| `--include-merges` | Include merge commits |
+
+**Operation Modes:**
+- **Interactive**: Prompts for each commit
+- **Smart**: LLM evaluates if message needs rewriting (commits < 5 words are auto-rewritten)
+- **Force-all**: Rewrites all commits in range
+
+**Safety Features:**
+- Creates backup branch before changes (`backup/pre-rewrite-TIMESTAMP`)
+- Warning if commits were already pushed (requires force push)
+- `--dry-run` mode for full preview
+
+```bash
+# Interactive mode
+ab git rewrite-history
+
+# Preview without changes
+ab git rewrite-history --dry-run
+
+# Rewrite last 5 commits
+ab git rewrite-history HEAD~5..HEAD
+
+# Batch mode in Portuguese
+ab git rewrite-history -y -l pt-br
+
+# Force rewrite all commits
+ab git rewrite-history --force-all
+
+# Smart mode (LLM decides)
+ab git rewrite-history --smart
+```
+
+---
+
+### ab util passgenerator
 
 Generate secure passwords with customizable requirements.
 
 ```bash
-ab passgenerator LENGTH [OPTIONS]
+ab util passgenerator LENGTH [OPTIONS]
 ```
 
 | Option | Description |
@@ -236,20 +305,20 @@ ab passgenerator LENGTH [OPTIONS]
 
 ```bash
 # 16-character password
-ab passgenerator 16
+ab util passgenerator 16
 
 # 20 chars with at least 4 digits
-ab passgenerator 20 --min-digits 4
+ab util passgenerator 20 --min-digits 4
 
 # No punctuation
-ab passgenerator 12 --no-punct
+ab util passgenerator 12 --no-punct
 ```
 
 ---
 
 ## Automatic Model Selection
 
-The `auto-commit` and `pr-description` commands automatically select models based on diff size:
+The `ab git auto-commit`, `ab git pr-description` and `ab git rewrite-history` commands automatically select models based on diff size:
 
 | Estimated Tokens | Model |
 |------------------|-------|
