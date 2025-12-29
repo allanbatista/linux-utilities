@@ -8,7 +8,7 @@ Unified CLI utilities for development workflows, powered by LLMs via OpenRouter.
 
 ```bash
 # Clone the repository
-git clone git@github.com:allanbatista/linux-utilities.git
+git clone git@github.com:allanbatista/ai-linux-utilities.git
 cd linux-utilities
 
 # Run the installer
@@ -25,7 +25,7 @@ The installer will:
 
 ```bash
 # Clone the repository
-git clone git@github.com:allanbatista/linux-utilities.git
+git clone git@github.com:allanbatista/ai-linux-utilities.git
 cd linux-utilities
 
 # Create virtual environment and install dependencies
