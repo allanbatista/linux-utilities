@@ -596,17 +596,22 @@ chmod +x "$FILTER_SCRIPT"
 
 # Determina o range para filter-branch
 if [ "$REVISION_RANGE" = "--root" ]; then
-    FILTER_RANGE="--all"
+    # Reescreve todo o histórico do branch atual
+    FILTER_RANGE="HEAD"
 else
     FILTER_RANGE="$REVISION_RANGE"
 fi
 
 # Executa filter-branch
-git filter-branch -f --msg-filter "$FILTER_SCRIPT" $FILTER_RANGE 2>/dev/null || {
+log_info "Rewriting commits with filter-branch..."
+export FILTER_BRANCH_SQUELCH_WARNING=1
+if ! git filter-branch -f --msg-filter "$FILTER_SCRIPT" -- $FILTER_RANGE 2>&1; then
     log_error "filter-branch failed. Restoring from backup..."
-    git reset --hard "$BACKUP"
+    git reset --hard "refs/heads/$BACKUP" 2>/dev/null || {
+        log_error "Failed to restore. Manual restore: git reset --hard $BACKUP"
+    }
     exit 1
-}
+fi
 
 echo ""
 log_success "History rewritten successfully!"
