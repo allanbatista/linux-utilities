@@ -8,7 +8,7 @@ Unified CLI utilities for development workflows, powered by LLMs via OpenRouter.
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone git@github.com:allanbatista/linux-utilities.git
 cd linux-utilities
 
 # Run the installer
@@ -25,7 +25,7 @@ The installer will:
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone git@github.com:allanbatista/linux-utilities.git
 cd linux-utilities
 
 # Create virtual environment and install dependencies
@@ -119,7 +119,7 @@ ab prompt script.py -p "Explain this code"
 ab prompt src/ -p "Review for security issues"
 
 # Use specific model
-ab prompt --model "openai/gpt-4o" file.py -p "Optimize this"
+ab prompt --model "openai/gpt-5" file.py -p "Optimize this"
 
 # Read prompt from stdin
 echo "Summarize this code" | ab prompt src/ -p -
@@ -134,7 +134,7 @@ ab prompt app.py -s dev -p "Refactor this function"
 ab prompt -u -p "Write a comprehensive tutorial"
 
 # Set default model
-ab prompt --set-default-model "openai/gpt-4o-mini"
+ab prompt --set-default-model "openai/gpt-5-mini"
 ```
 
 #### .aiignore File

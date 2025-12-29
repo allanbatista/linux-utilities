@@ -1,0 +1,621 @@
+#!/bin/bash
+
+# Script para reescrever mensagens de commit usando o utilitário prompt
+# Analisa commits e regenera mensagens via LLM
+
+set -e
+
+# Resolve caminho do script e do prompt
+SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname -- "$SCRIPT_PATH")"
+PROMPT_CMD="$SCRIPT_DIR/prompt"
+
+# Modelos por limite de tokens
+MODEL_SMALL="nvidia/nemotron-3-nano-30b-a3b:free"  # até 128k tokens
+MODEL_MEDIUM="openai/gpt-5-nano"                    # até 256k tokens
+MODEL_LARGE="x-ai/grok-4.1-fast"                    # acima de 256k tokens
+
+# Função para estimar tokens (aproximadamente 4 caracteres por token)
+estimate_tokens() {
+    local text="$1"
+    local chars=$(echo -n "$text" | wc -c)
+    echo $(( chars / 4 ))
+}
+
+# Função para selecionar modelo baseado no tamanho
+select_model() {
+    local tokens="$1"
+    if [ "$tokens" -le 128000 ]; then
+        echo "$MODEL_SMALL"
+    elif [ "$tokens" -le 256000 ]; then
+        echo "$MODEL_MEDIUM"
+    else
+        echo "$MODEL_LARGE"
+    fi
+}
+
+# Cores para output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# Funções de log
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Mostra ajuda
+show_help() {
+    echo "Usage: rewrite-history [options] [<revision-range>]"
+    echo ""
+    echo "Rewrite commit messages using LLM analysis"
+    echo ""
+    echo "Options:"
+    echo "  -y, --yes             Skip all confirmations (batch mode)"
+    echo "  -n, --dry-run         Preview messages without applying changes"
+    echo "  -l, --lang LANG       Output language (default: en)"
+    echo "  --smart               Use LLM to decide which commits need rewrite (default)"
+    echo "  --force-all           Force rewrite of all commits"
+    echo "  --skip-merges         Skip merge commits (default)"
+    echo "  --include-merges      Include merge commits in rewrite"
+    echo "  --backup-branch NAME  Name for backup branch"
+    echo "  -h, --help            Show this help"
+    echo ""
+    echo "Revision Range:"
+    echo "  HEAD~5..HEAD          Last 5 commits"
+    echo "  abc123..def456        Specific range"
+    echo "  (no args)             Interactive menu to choose"
+    echo ""
+    echo "Examples:"
+    echo "  rewrite-history --dry-run            # Preview all messages"
+    echo "  rewrite-history HEAD~5..HEAD         # Rewrite last 5 commits"
+    echo "  rewrite-history -y -l pt-br          # Batch mode in Portuguese"
+    echo "  rewrite-history --force-all          # Force rewrite all commits"
+}
+
+# Parse argumentos
+SKIP_CONFIRM=false
+DRY_RUN=false
+LANG="en"
+SMART_MODE=true
+FORCE_ALL=false
+SKIP_MERGES=true
+BACKUP_BRANCH=""
+REVISION_RANGE=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -y|--yes)
+            SKIP_CONFIRM=true
+            shift
+            ;;
+        -n|--dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        -l|--lang)
+            LANG="$2"
+            shift 2
+            ;;
+        --smart)
+            SMART_MODE=true
+            FORCE_ALL=false
+            shift
+            ;;
+        --force-all)
+            FORCE_ALL=true
+            SMART_MODE=false
+            shift
+            ;;
+        --skip-merges)
+            SKIP_MERGES=true
+            shift
+            ;;
+        --include-merges)
+            SKIP_MERGES=false
+            shift
+            ;;
+        --backup-branch)
+            BACKUP_BRANCH="$2"
+            shift 2
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -*)
+            log_error "Unknown option: $1"
+            show_help
+            exit 1
+            ;;
+        *)
+            REVISION_RANGE="$1"
+            shift
+            ;;
+    esac
+done
+
+# Verifica se está em um repositório git
+if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    log_error "Not inside a git repository"
+    exit 1
+fi
+
+# Verifica se o prompt está disponível
+if [ ! -x "$PROMPT_CMD" ]; then
+    log_error "Utility 'prompt' not found at $SCRIPT_DIR"
+    exit 1
+fi
+
+# Navega para a raiz do repositório
+cd "$(git rev-parse --show-toplevel)"
+
+# Verifica se há mudanças não commitadas
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    log_error "You have uncommitted changes. Please commit or stash them first."
+    exit 1
+fi
+
+# Conta palavras em uma mensagem
+count_words() {
+    echo "$1" | wc -w | tr -d ' '
+}
+
+# Verifica se commit é merge
+is_merge_commit() {
+    local commit_hash="$1"
+    local parent_count
+    parent_count=$(git rev-list --parents -n 1 "$commit_hash" | wc -w)
+    parent_count=$((parent_count - 1))
+    [ "$parent_count" -gt 1 ]
+}
+
+# Obtém diff de um commit
+get_commit_diff() {
+    local commit_hash="$1"
+    local parent_count
+    parent_count=$(git rev-list --parents -n 1 "$commit_hash" | wc -w)
+    parent_count=$((parent_count - 1))
+
+    if [ "$parent_count" -eq 0 ]; then
+        # Primeiro commit
+        git diff-tree --root -p "$commit_hash" 2>/dev/null
+    else
+        # Commit normal
+        git show --format="" -p "$commit_hash" 2>/dev/null
+    fi
+}
+
+# Obtém arquivos alterados em um commit
+get_commit_files() {
+    local commit_hash="$1"
+    git diff-tree --no-commit-id --name-status -r "$commit_hash" 2>/dev/null
+}
+
+# Avalia se commit precisa reescrita via LLM
+needs_rewrite_llm() {
+    local msg="$1"
+
+    local prompt_text="Analyze this git commit message and respond ONLY with 'YES' or 'NO'.
+Does this message need to be rewritten? Consider:
+- Is it too vague, unclear, or meaningless (like 'f', 'fix', 'update')?
+- Does it explain WHAT was changed?
+- Is it descriptive enough?
+
+Message: $msg
+
+Respond ONLY 'YES' if it needs rewrite, 'NO' if it's acceptable:"
+
+    local result
+    result=$("$PROMPT_CMD" --model "$MODEL_SMALL" --only-output --prompt "$prompt_text" 2>/dev/null | tr -d '[:space:]' | head -c 3)
+
+    [[ "$result" == "YES" ]]
+}
+
+# Avalia se commit precisa reescrita
+needs_rewrite() {
+    local msg="$1"
+    local word_count
+
+    # Regra 1: menos de 5 palavras → reescrever
+    word_count=$(count_words "$msg")
+    if [ "$word_count" -lt 5 ]; then
+        return 0
+    fi
+
+    # Regra 2 (modo smart): chamar LLM para avaliar
+    if [ "$SMART_MODE" = true ]; then
+        needs_rewrite_llm "$msg"
+        return $?
+    fi
+
+    return 1
+}
+
+# Gera nova mensagem para um commit
+generate_new_message() {
+    local commit_hash="$1"
+    local original_msg="$2"
+    local diff="$3"
+    local files_changed="$4"
+
+    local prompt_file
+    prompt_file=$(mktemp)
+    trap "rm -f $prompt_file" RETURN
+
+    cat > "$prompt_file" << EOF
+Analyze the git changes below and generate ONLY the commit message, without additional explanations.
+
+RULES:
+1. Respond ONLY with the commit message, nothing else
+2. Write in language: $LANG
+3. Be concise and descriptive
+4. First line: summary up to 72 characters (imperative mood)
+5. If needed, add details after a blank line
+6. Use bullet points for content after the first line
+7. Focus on WHAT was changed and WHY, not HOW
+
+ORIGINAL MESSAGE (for context):
+$original_msg
+
+FILES CHANGED:
+$files_changed
+
+DIFF:
+$diff
+
+Respond ONLY with the commit message:
+EOF
+
+    local content
+    content=$(cat "$prompt_file")
+    local tokens
+    tokens=$(estimate_tokens "$content")
+    local model
+    model=$(select_model "$tokens")
+
+    "$PROMPT_CMD" --model "$model" --lang "$LANG" --max-completion-tokens -1 --only-output --prompt - < "$prompt_file"
+}
+
+# Cria branch de backup
+create_backup_branch() {
+    local branch_name="${1:-backup/pre-rewrite-$(date +%Y%m%d-%H%M%S)}"
+
+    log_info "Creating backup branch: $branch_name"
+    git branch "$branch_name"
+
+    echo "$branch_name"
+}
+
+# Verifica se commits foram pushados para remote
+check_for_remotes() {
+    local first_commit="$1"
+
+    if ! git remote | grep -q .; then
+        return 0
+    fi
+
+    local remote_branch
+    remote_branch=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "")
+
+    if [ -n "$remote_branch" ]; then
+        if git merge-base --is-ancestor "$first_commit" "$remote_branch" 2>/dev/null; then
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+# Menu interativo para escolher modo
+show_interactive_menu() {
+    echo ""
+    echo -e "${BOLD}What would you like to do?${NC}"
+    echo ""
+    echo "  1) Rewrite ALL commits"
+    echo "  2) Define specific range (e.g., HEAD~5..HEAD)"
+    echo "  3) Interactive mode (evaluate commit by commit)"
+    echo "  4) Smart mode (LLM decides which commits need rewrite)"
+    echo ""
+    read -p "Choose [1-4]: " -n 1 -r choice
+    echo ""
+
+    case $choice in
+        1)
+            REVISION_RANGE="--root"
+            FORCE_ALL=true
+            SMART_MODE=false
+            ;;
+        2)
+            echo ""
+            read -p "Enter revision range (e.g., HEAD~5..HEAD): " REVISION_RANGE
+            FORCE_ALL=true
+            SMART_MODE=false
+            ;;
+        3)
+            REVISION_RANGE="--root"
+            FORCE_ALL=false
+            SMART_MODE=false
+            # Modo interativo será tratado no loop principal
+            INTERACTIVE_MODE=true
+            ;;
+        4)
+            REVISION_RANGE="--root"
+            SMART_MODE=true
+            FORCE_ALL=false
+            ;;
+        *)
+            log_error "Invalid choice"
+            exit 1
+            ;;
+    esac
+}
+
+# === MAIN ===
+
+INTERACTIVE_MODE=false
+
+# Se não passou range, mostra menu
+if [ -z "$REVISION_RANGE" ]; then
+    show_interactive_menu
+fi
+
+# Lista commits no range
+log_info "Listing commits..."
+
+if [ "$REVISION_RANGE" = "--root" ]; then
+    COMMITS=$(git rev-list --reverse HEAD)
+else
+    COMMITS=$(git rev-list --reverse "$REVISION_RANGE")
+fi
+
+if [ -z "$COMMITS" ]; then
+    log_warning "No commits found in the specified range"
+    exit 0
+fi
+
+TOTAL_COMMITS=$(echo "$COMMITS" | wc -l | tr -d ' ')
+log_info "Found $TOTAL_COMMITS commit(s) to analyze"
+
+# Verifica se commits foram pushados
+FIRST_COMMIT=$(echo "$COMMITS" | head -1)
+if ! check_for_remotes "$FIRST_COMMIT"; then
+    echo ""
+    log_warning "Some commits may have been pushed to remote!"
+    log_warning "Rewriting history will require force push (git push --force)"
+    echo ""
+    if [ "$SKIP_CONFIRM" = false ]; then
+        read -p "Continue anyway? (y/N) " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Aborted"
+            exit 0
+        fi
+    fi
+fi
+
+# Cria diretório temporário para mapeamento
+TEMP_DIR=$(mktemp -d)
+trap "rm -rf $TEMP_DIR" EXIT
+
+MAPPING_FILE="$TEMP_DIR/mapping.txt"
+touch "$MAPPING_FILE"
+
+# Cria backup (se não for dry-run)
+if [ "$DRY_RUN" = false ]; then
+    BACKUP=$(create_backup_branch "$BACKUP_BRANCH")
+fi
+
+echo ""
+log_info "Analyzing commits..."
+echo ""
+
+COMMITS_TO_REWRITE=0
+COMMITS_SKIPPED=0
+CURRENT=0
+
+for COMMIT in $COMMITS; do
+    CURRENT=$((CURRENT + 1))
+
+    # Obtém mensagem original
+    ORIGINAL_MSG=$(git log -1 --format="%B" "$COMMIT")
+    ORIGINAL_SUBJECT=$(git log -1 --format="%s" "$COMMIT")
+    SHORT_HASH=$(git log -1 --format="%h" "$COMMIT")
+
+    echo -e "${CYAN}[$CURRENT/$TOTAL_COMMITS]${NC} ${BOLD}$SHORT_HASH${NC} - $ORIGINAL_SUBJECT"
+
+    # Pula merge commits se configurado
+    if [ "$SKIP_MERGES" = true ] && is_merge_commit "$COMMIT"; then
+        echo -e "  ${YELLOW}↷ Skipping merge commit${NC}"
+        COMMITS_SKIPPED=$((COMMITS_SKIPPED + 1))
+        continue
+    fi
+
+    # Decide se precisa reescrever
+    SHOULD_REWRITE=false
+
+    if [ "$FORCE_ALL" = true ]; then
+        SHOULD_REWRITE=true
+        echo -e "  ${BLUE}→ Marked for rewrite (force-all)${NC}"
+    elif [ "$INTERACTIVE_MODE" = true ]; then
+        echo ""
+        echo -e "  ${BOLD}Current message:${NC}"
+        echo "$ORIGINAL_MSG" | sed 's/^/    /'
+        echo ""
+        read -p "  Rewrite this commit? (y/n/q) " -n 1 -r
+        echo ""
+        case $REPLY in
+            y|Y)
+                SHOULD_REWRITE=true
+                ;;
+            q|Q)
+                log_info "Aborted by user"
+                exit 0
+                ;;
+            *)
+                SHOULD_REWRITE=false
+                ;;
+        esac
+    else
+        # Modo automático/smart
+        WORD_COUNT=$(count_words "$ORIGINAL_MSG")
+        if [ "$WORD_COUNT" -lt 5 ]; then
+            SHOULD_REWRITE=true
+            echo -e "  ${BLUE}→ Marked for rewrite (< 5 words)${NC}"
+        elif [ "$SMART_MODE" = true ]; then
+            echo -n "  Evaluating with LLM... "
+            if needs_rewrite_llm "$ORIGINAL_MSG"; then
+                SHOULD_REWRITE=true
+                echo -e "${BLUE}needs rewrite${NC}"
+            else
+                echo -e "${GREEN}OK${NC}"
+            fi
+        fi
+    fi
+
+    if [ "$SHOULD_REWRITE" = false ]; then
+        COMMITS_SKIPPED=$((COMMITS_SKIPPED + 1))
+        continue
+    fi
+
+    COMMITS_TO_REWRITE=$((COMMITS_TO_REWRITE + 1))
+
+    # Obtém diff e arquivos
+    DIFF=$(get_commit_diff "$COMMIT")
+    FILES=$(get_commit_files "$COMMIT")
+
+    # Gera nova mensagem
+    echo -n "  Generating new message... "
+    NEW_MSG=$(generate_new_message "$COMMIT" "$ORIGINAL_MSG" "$DIFF" "$FILES")
+    echo -e "${GREEN}done${NC}"
+
+    # Mostra nova mensagem
+    echo ""
+    echo -e "  ${GREEN}New message:${NC}"
+    echo "$NEW_MSG" | sed 's/^/    /'
+    echo ""
+
+    # Confirmação individual (se não batch mode)
+    if [ "$SKIP_CONFIRM" = false ] && [ "$DRY_RUN" = false ]; then
+        read -p "  Accept this message? (Y/n/e) " -n 1 -r
+        echo ""
+        case $REPLY in
+            n|N)
+                echo -e "  ${YELLOW}↷ Skipped${NC}"
+                COMMITS_SKIPPED=$((COMMITS_SKIPPED + 1))
+                COMMITS_TO_REWRITE=$((COMMITS_TO_REWRITE - 1))
+                continue
+                ;;
+            e|E)
+                # Editar mensagem
+                EDIT_FILE=$(mktemp)
+                echo "$NEW_MSG" > "$EDIT_FILE"
+                ${EDITOR:-nano} "$EDIT_FILE"
+                NEW_MSG=$(cat "$EDIT_FILE")
+                rm -f "$EDIT_FILE"
+                ;;
+        esac
+    fi
+
+    # Salva no mapeamento (escapa newlines)
+    ESCAPED_MSG=$(echo "$NEW_MSG" | sed ':a;N;$!ba;s/\n/\\n/g')
+    echo "$COMMIT|$ESCAPED_MSG" >> "$MAPPING_FILE"
+done
+
+echo ""
+echo "----------------------------------------"
+log_info "Summary:"
+echo "  Total commits: $TOTAL_COMMITS"
+echo "  To rewrite: $COMMITS_TO_REWRITE"
+echo "  Skipped: $COMMITS_SKIPPED"
+echo "----------------------------------------"
+echo ""
+
+if [ "$COMMITS_TO_REWRITE" -eq 0 ]; then
+    log_info "No commits to rewrite"
+    if [ "$DRY_RUN" = false ] && [ -n "$BACKUP" ]; then
+        git branch -d "$BACKUP" 2>/dev/null || true
+    fi
+    exit 0
+fi
+
+if [ "$DRY_RUN" = true ]; then
+    log_info "Dry-run mode - no changes applied"
+    exit 0
+fi
+
+# Confirmação final
+if [ "$SKIP_CONFIRM" = false ]; then
+    echo ""
+    read -p "Apply changes? This will rewrite git history. (y/N) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log_info "Aborted. Backup branch preserved: $BACKUP"
+        exit 0
+    fi
+fi
+
+# Aplica via filter-branch
+log_info "Applying new messages via git filter-branch..."
+
+# Cria script de filtro
+FILTER_SCRIPT="$TEMP_DIR/filter.sh"
+cat > "$FILTER_SCRIPT" << 'FILTER_EOF'
+#!/bin/bash
+MAPPING_FILE="__MAPPING_FILE__"
+COMMIT_HASH="$GIT_COMMIT"
+
+if [ -f "$MAPPING_FILE" ]; then
+    NEW_MSG=$(grep "^$COMMIT_HASH|" "$MAPPING_FILE" | cut -d'|' -f2-)
+    if [ -n "$NEW_MSG" ]; then
+        echo -e "$NEW_MSG"
+        exit 0
+    fi
+fi
+cat
+FILTER_EOF
+
+sed -i "s|__MAPPING_FILE__|$MAPPING_FILE|g" "$FILTER_SCRIPT"
+chmod +x "$FILTER_SCRIPT"
+
+# Determina o range para filter-branch
+if [ "$REVISION_RANGE" = "--root" ]; then
+    FILTER_RANGE="--all"
+else
+    FILTER_RANGE="$REVISION_RANGE"
+fi
+
+# Executa filter-branch
+git filter-branch -f --msg-filter "$FILTER_SCRIPT" $FILTER_RANGE 2>/dev/null || {
+    log_error "filter-branch failed. Restoring from backup..."
+    git reset --hard "$BACKUP"
+    exit 1
+}
+
+echo ""
+log_success "History rewritten successfully!"
+echo ""
+log_info "Backup branch: $BACKUP"
+log_info "To restore: git reset --hard $BACKUP"
+echo ""
+
+if git remote | grep -q .; then
+    log_warning "Remember: You need to force push to update remote"
+    log_warning "  git push --force-with-lease"
+fi

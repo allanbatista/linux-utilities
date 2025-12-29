@@ -10,6 +10,7 @@ linux-utilities/
 ├── ab.bash-completion    # Autocompletion para bash
 ├── auto-commit           # Gera mensagens de commit via LLM
 ├── pr-description        # Gera título/descrição de PR via LLM
+├── rewrite-history       # Reescreve mensagens de commit via LLM
 ├── prompt                # Wrapper bash para prompt.py
 ├── prompt.py             # CLI para enviar contexto ao OpenRouter
 ├── passgenerator         # Gerador de senhas seguras
@@ -27,6 +28,7 @@ ab <subcomando> [opções]
 # Subcomandos:
 ab auto-commit      # Gera mensagem de commit via LLM
 ab pr-description   # Gera título/descrição de PR via LLM
+ab rewrite-history  # Reescreve mensagens de commit via LLM
 ab prompt           # Envia contexto para LLM (OpenRouter)
 ab passgenerator    # Gerador de senhas seguras
 ab help             # Mostra ajuda
@@ -70,6 +72,27 @@ ab passgenerator 20 --min-digits 4     # Mínimo 4 dígitos
 ab passgenerator 12 --no-punct         # Sem pontuação
 ```
 
+### rewrite-history
+Reescreve mensagens de commit do histórico git usando LLM.
+```bash
+ab rewrite-history                     # Menu interativo para escolher modo
+ab rewrite-history --dry-run           # Preview sem aplicar mudanças
+ab rewrite-history HEAD~5..HEAD        # Reescreve últimos 5 commits
+ab rewrite-history -y -l pt-br         # Batch mode em português
+ab rewrite-history --force-all         # Força reescrita de todos
+ab rewrite-history --smart             # LLM decide quais precisam reescrita
+```
+
+**Modos de operação:**
+- **Interativo**: Pergunta para cada commit se deve reescrever
+- **Smart**: LLM avalia se a mensagem precisa ser reescrita (commits < 5 palavras são reescritos automaticamente)
+- **Force-all**: Reescreve todos os commits no range
+
+**Segurança:**
+- Cria branch de backup antes de alterar (`backup/pre-rewrite-TIMESTAMP`)
+- Warning se commits já foram pushados (requer force push)
+- Modo `--dry-run` para preview completo
+
 ## Instalação
 
 ```bash
@@ -108,7 +131,7 @@ export OPENROUTER_API_KEY="sua-chave-aqui"
 
 ## Seleção Automática de Modelo
 
-Os scripts `auto-commit` e `pr-description` selecionam automaticamente o modelo baseado no tamanho do diff:
+Os scripts `auto-commit`, `pr-description` e `rewrite-history` selecionam automaticamente o modelo baseado no tamanho do diff:
 
 | Tokens estimados | Modelo |
 |------------------|--------|

@@ -10,10 +10,11 @@ show_help() {
     echo "Uso: ab <comando> [argumentos...]"
     echo ""
     echo "Comandos disponíveis:"
-    echo "  auto-commit      Gera mensagem de commit via LLM"
-    echo "  pr-description   Gera título/descrição de PR via LLM"
-    echo "  prompt           Envia contexto para LLM (OpenRouter)"
-    echo "  passgenerator    Gerador de senhas seguras"
+    echo "  auto-commit       Gera mensagem de commit via LLM"
+    echo "  pr-description    Gera título/descrição de PR via LLM"
+    echo "  prompt            Envia contexto para LLM (OpenRouter)"
+    echo "  passgenerator     Gerador de senhas seguras"
+    echo "  rewrite-history   Reescreve mensagens de commit via LLM"
     echo ""
     echo "Exemplos:"
     echo "  ab auto-commit -a -y"
@@ -36,7 +37,7 @@ case "$COMMAND" in
     help|-h|--help)
         show_help
         ;;
-    auto-commit|pr-description|prompt|passgenerator)
+    auto-commit|pr-description|prompt|passgenerator|rewrite-history)
         exec "$SCRIPT_DIR/$COMMAND" "$@"
         ;;
     *)

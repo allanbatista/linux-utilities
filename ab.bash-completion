@@ -6,7 +6,7 @@ _ab_completions() {
     local prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Subcomandos disponíveis
-    local commands="auto-commit pr-description prompt passgenerator help"
+    local commands="auto-commit pr-description prompt passgenerator rewrite-history help"
 
     # Se estamos no primeiro argumento, completar com subcomandos
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -27,6 +27,9 @@ _ab_completions() {
             ;;
         passgenerator)
             COMPREPLY=($(compgen -W "--no-letters --no-digits --no-punct --min-letters --min-digits --min-punct --allow-sequences --allow-repeated" -- "$cur"))
+            ;;
+        rewrite-history)
+            COMPREPLY=($(compgen -W "-y --yes -n --dry-run -l --lang --smart --force-all --skip-merges --include-merges --backup-branch -h --help" -- "$cur"))
             ;;
     esac
 
