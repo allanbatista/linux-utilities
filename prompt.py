@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """
-CLI para concatenar conteúdo de arquivos e enviar para o OpenRouter.
+CLI to concatenate file contents and send to OpenRouter.
 
-Configuração via `~/.prompt/config.json` (opcional).
+Configuration via `~/.ab/config.json` (optional).
 
-Exemplo de `~/.prompt/config.json`:
+Example `~/.ab/config.json`:
 {
-  "model": "nvidia/nemotron-3-nano-30b-a3b:free",
-  "api_base": "https://openrouter.ai/api/v1",
-  "api_key_env": "OPENROUTER_API_KEY",
-  "request": { "timeout_seconds": 300 }
+  "global": {
+    "language": "en",
+    "api_base": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "timeout_seconds": 300
+  },
+  "models": {
+    "default": "nvidia/nemotron-3-nano-30b-a3b:free"
+  }
 }
 
-Flag `--set-default-model <modelo>` para **persistir** o modelo default.
+Flag `--set-default-model <model>` to **persist** the default model.
 """
 import argparse
 import os
@@ -39,44 +44,43 @@ def pp(*args, **kwargs):
 # =========================
 
 def load_config() -> Dict[str, Any]:
-    """Carrega ~/.prompt/config.json se existir; caso contrário, retorna {}."""
+    """Load config from ~/.ab/config.json using centralized config module."""
     try:
-        cfg_path = pathlib.Path.home() / ".prompt" / "config.json"
-        if cfg_path.exists():
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+        # Add script directory to path for imports
+        script_dir = pathlib.Path(__file__).parent
+        sys.path.insert(0, str(script_dir))
+        from lib.ab_config import get_config
+
+        config = get_config()
+        # Return in legacy format for compatibility
+        return {
+            "model": config.get("models.default"),
+            "api_base": config.get("global.api_base"),
+            "api_key_env": config.get("global.api_key_env"),
+            "request": {
+                "timeout_seconds": config.get("global.timeout_seconds", 300)
+            }
+        }
     except Exception as e:
-        pp(f"Aviso: não foi possível ler ~/.prompt/config.json: {e}")
+        pp(f"Warning: could not read config: {e}")
     return {}
 
 
 def persist_default_model(new_model: str) -> bool:
     """
-    Atualiza o modelo default em ~/.prompt/config.json (chave top-level "model"),
-    preservando os demais campos. Cria o arquivo se não existir.
+    Update default model in ~/.ab/config.json (models.default key),
+    preserving other fields. Creates the file if it doesn't exist.
     """
     try:
-        cfg_dir = pathlib.Path.home() / ".prompt"
-        cfg_dir.mkdir(parents=True, exist_ok=True)
-        cfg_path = cfg_dir / "config.json"
+        script_dir = pathlib.Path(__file__).parent
+        sys.path.insert(0, str(script_dir))
+        from lib.ab_config import get_config
 
-        config: Dict[str, Any] = {}
-        if cfg_path.exists():
-            try:
-                with open(cfg_path, "r", encoding="utf-8") as f:
-                    config = json.load(f) or {}
-            except json.JSONDecodeError:
-                config = {}
-        else:
-            config = {}
-
-        config["model"] = new_model
-
-        with open(cfg_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
+        config = get_config()
+        config.set("models.default", new_model)
         return True
     except Exception as e:
-        pp(f"Erro ao persistir modelo default: {e}")
+        pp(f"Error persisting default model: {e}")
         return False
 
 
@@ -182,25 +186,25 @@ def send_to_openrouter(prompt: str, context: str, lang: str, specialist: Optiona
 # Histórico e Persistência
 # =========================
 
-def save_to_history(full_prompt: str, response_text: str, result: Dict[str, Any], 
+def save_to_history(full_prompt: str, response_text: str, result: Dict[str, Any],
                      files_info: Dict[str, Any], args: argparse.Namespace) -> None:
     """
-    Salva o histórico completo da interação com o LLM em ~/.prompt/history/
-    
-    Informações salvas:
-    - Timestamp da requisição
-    - Provider e modelo utilizados
-    - Prompt completo e resposta
-    - Métricas de tokens (prompt, response, total)
-    - Informações sobre arquivos processados
-    - Configurações utilizadas (specialist, linguagem, etc)
-    - Hash do prompt para evitar duplicatas
+    Save full interaction history with LLM to ~/.ab/history/
+
+    Information saved:
+    - Request timestamp
+    - Provider and model used
+    - Full prompt and response
+    - Token metrics (prompt, response, total)
+    - Processed files information
+    - Configuration used (specialist, language, etc)
+    - Prompt hash to avoid duplicates
     """
     try:
         import hashlib
-        
-        # Diretório de histórico
-        history_dir = pathlib.Path.home() / ".prompt" / "history"
+
+        # History directory
+        history_dir = pathlib.Path.home() / ".ab" / "history"
         history_dir.mkdir(parents=True, exist_ok=True)
         
         # Nome do arquivo baseado em timestamp
@@ -640,8 +644,8 @@ def main():
     parser.add_argument(
         '--lang',
         type=str,
-        default='pt-br',
-        help='Linguagem de output desejada. Padrão: pt-br'
+        default='en',
+        help='Output language. Default: en'
     )
     parser.add_argument(
         '-n', '--max-tokens',

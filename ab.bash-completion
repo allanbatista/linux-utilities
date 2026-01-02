@@ -5,21 +5,24 @@ _ab_completions() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
     local prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    # Categorias e comandos de nivel 1
-    local level1="git util prompt help"
+    # Categories and level 1 commands
+    local level1="git util prompt config help"
 
-    # Comandos por categoria
+    # Commands by category
     local git_commands="auto-commit pr-description rewrite-history help"
     local util_commands="passgenerator help"
+    local config_commands="show get set init path edit list-keys help"
 
-    # Opcoes por comando
+    # Options by command
     local auto_commit_opts="-y --yes -a --add -l --lang -h --help"
     local pr_description_opts="-b --base -c --create -d --draft -l --lang -y --yes -h --help"
     local rewrite_history_opts="-y --yes -n --dry-run -l --lang --smart --force-all --skip-merges --include-merges --backup-branch -h --help"
-    local prompt_opts="-p --prompt --model --only-output --json --lang -s --specialist -h --help"
+    local prompt_opts="-p --prompt --model --only-output --json --lang -s --specialist -n --max-tokens -m --max-completion-tokens -u --unlimited --set-default-model -h --help"
     local passgenerator_opts="--no-letters --no-digits --no-punct --min-letters --min-digits --min-punct --allow-sequences --allow-repeated"
+    local config_opts="-h --help"
+    local config_init_opts="-f --force -h --help"
 
-    # Nivel 1: categorias e comandos raiz
+    # Level 1: categories and root commands
     if [ "$COMP_CWORD" -eq 1 ]; then
         COMPREPLY=($(compgen -W "$level1" -- "$cur"))
         return 0
@@ -27,13 +30,31 @@ _ab_completions() {
 
     local category="${COMP_WORDS[1]}"
 
-    # Comando raiz: prompt
+    # Root command: prompt
     if [ "$category" = "prompt" ]; then
         COMPREPLY=($(compgen -W "$prompt_opts" -- "$cur"))
         return 0
     fi
 
-    # Nivel 2: comandos da categoria
+    # Root command: config
+    if [ "$category" = "config" ]; then
+        if [ "$COMP_CWORD" -eq 2 ]; then
+            COMPREPLY=($(compgen -W "$config_commands" -- "$cur"))
+        else
+            local config_cmd="${COMP_WORDS[2]}"
+            case "$config_cmd" in
+                init)
+                    COMPREPLY=($(compgen -W "$config_init_opts" -- "$cur"))
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "$config_opts" -- "$cur"))
+                    ;;
+            esac
+        fi
+        return 0
+    fi
+
+    # Level 2: commands within category
     if [ "$COMP_CWORD" -eq 2 ]; then
         case "$category" in
             git)
@@ -46,7 +67,7 @@ _ab_completions() {
         return 0
     fi
 
-    # Nivel 3+: opcoes do comando
+    # Level 3+: command options
     local command="${COMP_WORDS[2]}"
 
     case "$category" in

@@ -68,14 +68,32 @@ export OPENROUTER_API_KEY="your-api-key-here"
 
 ### Persistent Configuration
 
-Create `~/.prompt/config.json`:
+Manage with `ab config`:
+
+```bash
+ab config init              # Create default config
+ab config show              # View current config
+ab config set global.language pt-br    # Change language
+ab config set models.default "openai/gpt-4o"  # Change default model
+```
+
+Configuration is stored in `~/.ab/config.json`:
 
 ```json
 {
-  "model": "nvidia/nemotron-3-nano-30b-a3b:free",
-  "api_base": "https://openrouter.ai/api/v1",
-  "api_key_env": "OPENROUTER_API_KEY",
-  "request": { "timeout_seconds": 300 }
+  "version": "1.0",
+  "global": {
+    "language": "en",
+    "api_base": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "timeout_seconds": 300
+  },
+  "models": {
+    "default": "nvidia/nemotron-3-nano-30b-a3b:free",
+    "small": "nvidia/nemotron-3-nano-30b-a3b:free",
+    "medium": "openai/gpt-5-nano",
+    "large": "x-ai/grok-4.1-fast"
+  }
 }
 ```
 
@@ -94,6 +112,7 @@ ab util <command>       # General utilities
 
 # Root commands:
 ab prompt               # Send context to LLM (OpenRouter)
+ab config               # Manage configuration
 ab help                 # Show help
 ```
 
@@ -116,7 +135,7 @@ ab prompt [OPTIONS] [PATH...]
 - **Multiple file/directory support**: Process entire directories recursively
 - **Token management**: Control context and response token limits
 - **Specialist personas**: Use pre-configured expert prompts
-- **History tracking**: All interactions saved to `~/.prompt/history/`
+- **History tracking**: All interactions saved to `~/.ab/history/`
 
 #### Options
 
@@ -342,7 +361,7 @@ The `ab git auto-commit`, `ab git pr-description` and `ab git rewrite-history` c
 
 ## History
 
-All prompt interactions are saved to `~/.prompt/history/` with:
+All prompt interactions are saved to `~/.ab/history/` with:
 
 - Timestamp and session ID
 - Model and provider info
@@ -350,7 +369,7 @@ All prompt interactions are saved to `~/.prompt/history/` with:
 - Full prompt and response
 - Files processed
 
-View the index at `~/.prompt/history/index.json`.
+View the index at `~/.ab/history/index.json`.
 
 ---
 

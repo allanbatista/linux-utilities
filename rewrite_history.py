@@ -1,0 +1,617 @@
+#!/usr/bin/env python3
+"""
+rewrite-history - Rewrite commit messages using LLM.
+
+Analyzes commits and regenerates messages via LLM.
+"""
+import argparse
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from datetime import datetime
+from typing import List, Optional, Tuple
+
+# Add parent directory to path for imports
+script_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, script_dir)
+
+from lib.ab_config import get_config, estimate_tokens, get_language
+
+# ANSI colors
+RED = '\033[0;31m'
+GREEN = '\033[0;32m'
+YELLOW = '\033[1;33m'
+BLUE = '\033[0;34m'
+CYAN = '\033[0;36m'
+BOLD = '\033[1m'
+NC = '\033[0m'  # No Color
+
+
+def log_info(msg: str) -> None:
+    print(f"{BLUE}[INFO]{NC} {msg}")
+
+
+def log_success(msg: str) -> None:
+    print(f"{GREEN}[SUCCESS]{NC} {msg}")
+
+
+def log_warning(msg: str) -> None:
+    print(f"{YELLOW}[WARNING]{NC} {msg}")
+
+
+def log_error(msg: str) -> None:
+    print(f"{RED}[ERROR]{NC} {msg}", file=sys.stderr)
+
+
+def run_git(*args, capture: bool = True, check: bool = True) -> subprocess.CompletedProcess:
+    """Run a git command."""
+    cmd = ['git'] + list(args)
+    return subprocess.run(
+        cmd,
+        capture_output=capture,
+        text=True,
+        check=check
+    )
+
+
+def is_git_repo() -> bool:
+    """Check if current directory is inside a git repository."""
+    try:
+        run_git('rev-parse', '--is-inside-work-tree')
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def get_repo_root() -> str:
+    """Get the root directory of the git repository."""
+    result = run_git('rev-parse', '--show-toplevel')
+    return result.stdout.strip()
+
+
+def has_uncommitted_changes() -> bool:
+    """Check if there are uncommitted changes."""
+    try:
+        run_git('diff', '--quiet')
+        run_git('diff', '--cached', '--quiet')
+        return False
+    except subprocess.CalledProcessError:
+        return True
+
+
+def count_words(text: str) -> int:
+    """Count words in text."""
+    return len(text.split())
+
+
+def is_merge_commit(commit_hash: str) -> bool:
+    """Check if commit is a merge commit."""
+    result = run_git('rev-list', '--parents', '-n', '1', commit_hash)
+    parts = result.stdout.strip().split()
+    return len(parts) > 2  # More than 1 parent
+
+
+def get_commit_diff(commit_hash: str) -> str:
+    """Get diff for a commit."""
+    result = run_git('rev-list', '--parents', '-n', '1', commit_hash)
+    parts = result.stdout.strip().split()
+    parent_count = len(parts) - 1
+
+    if parent_count == 0:
+        # First commit
+        result = run_git('diff-tree', '--root', '-p', commit_hash, check=False)
+    else:
+        result = run_git('show', '--format=', '-p', commit_hash, check=False)
+
+    return result.stdout
+
+
+def get_commit_files(commit_hash: str) -> str:
+    """Get files changed in a commit."""
+    result = run_git('diff-tree', '--no-commit-id', '--name-status', '-r', commit_hash, check=False)
+    return result.stdout.strip()
+
+
+def get_commit_message(commit_hash: str) -> str:
+    """Get full commit message."""
+    result = run_git('log', '-1', '--format=%B', commit_hash)
+    return result.stdout.strip()
+
+
+def get_commit_subject(commit_hash: str) -> str:
+    """Get commit subject line."""
+    result = run_git('log', '-1', '--format=%s', commit_hash)
+    return result.stdout.strip()
+
+
+def get_short_hash(commit_hash: str) -> str:
+    """Get short hash."""
+    result = run_git('log', '-1', '--format=%h', commit_hash)
+    return result.stdout.strip()
+
+
+def list_commits(revision_range: str) -> List[str]:
+    """List commits in range (oldest first)."""
+    if revision_range == '--root':
+        result = run_git('rev-list', '--reverse', 'HEAD')
+    else:
+        result = run_git('rev-list', '--reverse', revision_range)
+    commits = result.stdout.strip().split('\n')
+    return [c for c in commits if c]
+
+
+def has_remotes() -> bool:
+    """Check if repository has remotes."""
+    result = run_git('remote', check=False)
+    return bool(result.stdout.strip())
+
+
+def check_commits_pushed(first_commit: str) -> bool:
+    """Check if commits have been pushed to remote. Returns True if pushed."""
+    if not has_remotes():
+        return False
+
+    try:
+        result = run_git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}', check=False)
+        remote_branch = result.stdout.strip()
+        if not remote_branch:
+            return False
+
+        # Check if first_commit is ancestor of remote branch
+        run_git('merge-base', '--is-ancestor', first_commit, remote_branch)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def create_backup_branch(name: Optional[str] = None) -> str:
+    """Create a backup branch. Returns branch name."""
+    if not name:
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        name = f'backup/pre-rewrite-{timestamp}'
+
+    run_git('branch', name)
+    return name
+
+
+def needs_rewrite_llm(msg: str, prompt_cmd: str) -> bool:
+    """Use LLM to evaluate if commit message needs rewrite."""
+    config = get_config()
+    model = config.get_with_default('models.small')
+
+    prompt_text = f"""Analyze this git commit message and respond ONLY with 'YES' or 'NO'.
+Does this message need to be rewritten? Consider:
+- Is it too vague, unclear, or meaningless (like 'f', 'fix', 'update')?
+- Does it explain WHAT was changed?
+- Is it descriptive enough?
+
+Message: {msg}
+
+Respond ONLY 'YES' if it needs rewrite, 'NO' if it's acceptable:"""
+
+    try:
+        result = subprocess.run(
+            [prompt_cmd, '--model', model, '--only-output', '--prompt', prompt_text],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        response = result.stdout.strip().upper()[:3]
+        return response == 'YES'
+    except subprocess.CalledProcessError:
+        return False
+
+
+def generate_new_message(commit_hash: str, original_msg: str, diff: str,
+                        files_changed: str, lang: str, prompt_cmd: str) -> str:
+    """Generate new commit message using LLM."""
+    config = get_config()
+
+    prompt_text = f"""Analyze the git changes below and generate ONLY the commit message, without additional explanations.
+
+RULES:
+1. Respond ONLY with the commit message, nothing else
+2. Write in language: {lang}
+3. Be concise and descriptive
+4. First line: summary up to 72 characters (imperative mood)
+5. If needed, add details after a blank line
+6. Use bullet points for content after the first line
+7. Focus on WHAT was changed and WHY, not HOW
+8. Do NOT add any footer, attribution, or "Generated by" text
+
+ORIGINAL MESSAGE (for context):
+{original_msg}
+
+FILES CHANGED:
+{files_changed}
+
+DIFF:
+{diff}
+
+Respond ONLY with the commit message:
+"""
+
+    estimated_tokens = estimate_tokens(prompt_text)
+    selected_model = config.select_model(estimated_tokens)
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write(prompt_text)
+        prompt_file = f.name
+
+    try:
+        result = subprocess.run(
+            [prompt_cmd, '--model', selected_model, '--lang', lang,
+             '--max-completion-tokens', '-1', '--only-output', '--prompt', '-'],
+            stdin=open(prompt_file, 'r'),
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout.strip()
+    finally:
+        os.unlink(prompt_file)
+
+
+def show_interactive_menu() -> Tuple[str, bool, bool, bool]:
+    """Show interactive menu. Returns (revision_range, force_all, smart_mode, interactive_mode)."""
+    print()
+    print(f"{BOLD}What would you like to do?{NC}")
+    print()
+    print("  1) Rewrite ALL commits")
+    print("  2) Define specific range (e.g., HEAD~5..HEAD)")
+    print("  3) Interactive mode (evaluate commit by commit)")
+    print("  4) Smart mode (LLM decides which commits need rewrite)")
+    print()
+
+    try:
+        choice = input("Choose [1-4]: ").strip()
+    except EOFError:
+        sys.exit(0)
+
+    if choice == '1':
+        return '--root', True, False, False
+    elif choice == '2':
+        print()
+        revision_range = input("Enter revision range (e.g., HEAD~5..HEAD): ").strip()
+        return revision_range, True, False, False
+    elif choice == '3':
+        return '--root', False, False, True
+    elif choice == '4':
+        return '--root', False, True, False
+    else:
+        log_error("Invalid choice")
+        sys.exit(1)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Rewrite commit messages using LLM analysis',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+Examples:
+  rewrite-history --dry-run            # Preview all messages
+  rewrite-history HEAD~5..HEAD         # Rewrite last 5 commits
+  rewrite-history -y -l pt-br          # Batch mode in Portuguese
+  rewrite-history --force-all          # Force rewrite all commits
+'''
+    )
+
+    config = get_config()
+
+    parser.add_argument('-y', '--yes', action='store_true',
+                        help='Skip all confirmations (batch mode)')
+    parser.add_argument('-n', '--dry-run', action='store_true',
+                        help='Preview messages without applying changes')
+    parser.add_argument('-l', '--lang', type=str,
+                        default=get_language('rewrite-history'),
+                        help=f'Output language (default: {get_language("rewrite-history")})')
+    parser.add_argument('--smart', action='store_true',
+                        default=config.get('commands.rewrite-history.smart_mode', True),
+                        help='Use LLM to decide which commits need rewrite (default)')
+    parser.add_argument('--force-all', action='store_true',
+                        help='Force rewrite of all commits')
+    parser.add_argument('--skip-merges', action='store_true',
+                        default=config.get('commands.rewrite-history.skip_merges', True),
+                        help='Skip merge commits (default)')
+    parser.add_argument('--include-merges', action='store_true',
+                        help='Include merge commits in rewrite')
+    parser.add_argument('--backup-branch', type=str, default='',
+                        help='Name for backup branch')
+    parser.add_argument('revision_range', nargs='?', default='',
+                        help='Revision range (e.g., HEAD~5..HEAD)')
+
+    args = parser.parse_args()
+
+    # Handle flag conflicts
+    skip_merges = args.skip_merges and not args.include_merges
+    smart_mode = args.smart and not args.force_all
+
+    # Check if inside git repo
+    if not is_git_repo():
+        log_error("Not inside a git repository")
+        sys.exit(1)
+
+    # Find prompt command
+    prompt_cmd = os.path.join(script_dir, 'ab-prompt')
+    if not os.path.isfile(prompt_cmd):
+        log_error(f"Utility 'prompt' not found at {script_dir}")
+        sys.exit(1)
+
+    # Change to repo root
+    os.chdir(get_repo_root())
+
+    # Check for uncommitted changes
+    if has_uncommitted_changes():
+        log_error("You have uncommitted changes. Please commit or stash them first.")
+        sys.exit(1)
+
+    # Get revision range
+    revision_range = args.revision_range
+    force_all = args.force_all
+    interactive_mode = False
+
+    if not revision_range:
+        revision_range, force_all, smart_mode, interactive_mode = show_interactive_menu()
+
+    # List commits
+    log_info("Listing commits...")
+
+    commits = list_commits(revision_range)
+
+    if not commits:
+        log_warning("No commits found in the specified range")
+        sys.exit(0)
+
+    total_commits = len(commits)
+    log_info(f"Found {total_commits} commit(s) to analyze")
+
+    # Check if commits were pushed
+    first_commit = commits[0]
+    if check_commits_pushed(first_commit):
+        print()
+        log_warning("Some commits may have been pushed to remote!")
+        log_warning("Rewriting history will require force push (git push --force)")
+        print()
+        if not args.yes:
+            try:
+                reply = input("Continue anyway? (y/N) ").strip().lower()
+            except EOFError:
+                reply = 'n'
+            if reply != 'y':
+                log_info("Aborted")
+                sys.exit(0)
+
+    # Mapping for rewrites: {commit_hash: new_message}
+    rewrites = {}
+
+    # Create backup (if not dry-run)
+    backup_branch = None
+    if not args.dry_run:
+        backup_branch = create_backup_branch(args.backup_branch if args.backup_branch else None)
+        log_info(f"Created backup branch: {backup_branch}")
+
+    print()
+    log_info("Analyzing commits...")
+    print()
+
+    commits_to_rewrite = 0
+    commits_skipped = 0
+
+    for i, commit in enumerate(commits, 1):
+        original_msg = get_commit_message(commit)
+        original_subject = get_commit_subject(commit)
+        short_hash = get_short_hash(commit)
+
+        print(f"{CYAN}[{i}/{total_commits}]{NC} {BOLD}{short_hash}{NC} - {original_subject}")
+
+        # Skip merge commits if configured
+        if skip_merges and is_merge_commit(commit):
+            print(f"  {YELLOW}↷ Skipping merge commit{NC}")
+            commits_skipped += 1
+            continue
+
+        # Decide if needs rewrite
+        should_rewrite = False
+
+        if force_all:
+            should_rewrite = True
+            print(f"  {BLUE}→ Marked for rewrite (force-all){NC}")
+        elif interactive_mode:
+            print()
+            print(f"  {BOLD}Current message:{NC}")
+            for line in original_msg.split('\n'):
+                print(f"    {line}")
+            print()
+            try:
+                reply = input("  Rewrite this commit? (y/n/q) ").strip().lower()
+            except EOFError:
+                reply = 'n'
+
+            if reply == 'y':
+                should_rewrite = True
+            elif reply == 'q':
+                log_info("Aborted by user")
+                sys.exit(0)
+        else:
+            # Automatic/smart mode
+            word_count = count_words(original_msg)
+            if word_count < 5:
+                should_rewrite = True
+                print(f"  {BLUE}→ Marked for rewrite (< 5 words){NC}")
+            elif smart_mode:
+                print("  Evaluating with LLM... ", end='', flush=True)
+                if needs_rewrite_llm(original_msg, prompt_cmd):
+                    should_rewrite = True
+                    print(f"{BLUE}needs rewrite{NC}")
+                else:
+                    print(f"{GREEN}OK{NC}")
+
+        if not should_rewrite:
+            commits_skipped += 1
+            continue
+
+        commits_to_rewrite += 1
+
+        # Get diff and files
+        diff = get_commit_diff(commit)
+        files = get_commit_files(commit)
+
+        # Generate new message
+        print("  Generating new message... ", end='', flush=True)
+        try:
+            new_msg = generate_new_message(commit, original_msg, diff, files, args.lang, prompt_cmd)
+            print(f"{GREEN}done{NC}")
+        except subprocess.CalledProcessError as e:
+            print(f"{RED}failed{NC}")
+            log_error(f"Failed to generate message: {e}")
+            commits_skipped += 1
+            commits_to_rewrite -= 1
+            continue
+
+        # Show new message
+        print()
+        print(f"  {GREEN}New message:{NC}")
+        for line in new_msg.split('\n'):
+            print(f"    {line}")
+        print()
+
+        # Individual confirmation (if not batch mode)
+        if not args.yes and not args.dry_run:
+            try:
+                reply = input("  Accept this message? (Y/n/e) ").strip().lower()
+            except EOFError:
+                reply = 'y'
+
+            if reply == 'n':
+                print(f"  {YELLOW}↷ Skipped{NC}")
+                commits_skipped += 1
+                commits_to_rewrite -= 1
+                continue
+            elif reply == 'e':
+                # Edit message
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                    f.write(new_msg)
+                    edit_file = f.name
+
+                editor = os.environ.get('EDITOR', os.environ.get('VISUAL', 'nano'))
+                subprocess.run([editor, edit_file])
+
+                with open(edit_file, 'r') as f:
+                    new_msg = f.read().strip()
+                os.unlink(edit_file)
+
+        rewrites[commit] = new_msg
+
+    # Summary
+    print()
+    print("-" * 40)
+    log_info("Summary:")
+    print(f"  Total commits: {total_commits}")
+    print(f"  To rewrite: {commits_to_rewrite}")
+    print(f"  Skipped: {commits_skipped}")
+    print("-" * 40)
+    print()
+
+    if commits_to_rewrite == 0:
+        log_info("No commits to rewrite")
+        if backup_branch:
+            try:
+                run_git('branch', '-d', backup_branch, check=False)
+            except Exception:
+                pass
+        sys.exit(0)
+
+    if args.dry_run:
+        log_info("Dry-run mode - no changes applied")
+        sys.exit(0)
+
+    # Final confirmation
+    if not args.yes:
+        print()
+        try:
+            reply = input("Apply changes? This will rewrite git history. (y/N) ").strip().lower()
+        except EOFError:
+            reply = 'n'
+
+        if reply != 'y':
+            log_info(f"Aborted. Backup branch preserved: {backup_branch}")
+            sys.exit(0)
+
+    # Apply via filter-branch
+    log_info("Applying new messages via git filter-branch...")
+
+    # Create mapping file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        for commit_hash, new_msg in rewrites.items():
+            escaped_msg = new_msg.replace('\n', '\\n')
+            f.write(f"{commit_hash}|{escaped_msg}\n")
+        mapping_file = f.name
+
+    # Create filter script
+    filter_script = tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False)
+    filter_script.write(f'''#!/bin/bash
+MAPPING_FILE="{mapping_file}"
+COMMIT_HASH="$GIT_COMMIT"
+
+if [ -f "$MAPPING_FILE" ]; then
+    NEW_MSG=$(grep "^$COMMIT_HASH|" "$MAPPING_FILE" | cut -d'|' -f2-)
+    if [ -n "$NEW_MSG" ]; then
+        echo -e "$NEW_MSG"
+        exit 0
+    fi
+fi
+cat
+''')
+    filter_script.close()
+    os.chmod(filter_script.name, 0o755)
+
+    # Determine range for filter-branch
+    if revision_range == '--root':
+        filter_range = 'HEAD'
+    else:
+        filter_range = revision_range
+
+    # Execute filter-branch
+    log_info("Rewriting commits with filter-branch...")
+    env = os.environ.copy()
+    env['FILTER_BRANCH_SQUELCH_WARNING'] = '1'
+
+    try:
+        result = subprocess.run(
+            ['git', 'filter-branch', '-f', '--msg-filter', filter_script.name, '--', filter_range],
+            env=env,
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, 'filter-branch', result.stderr)
+
+    except subprocess.CalledProcessError as e:
+        log_error(f"filter-branch failed: {e}")
+        log_error("Restoring from backup...")
+        try:
+            run_git('reset', '--hard', f'refs/heads/{backup_branch}')
+        except Exception:
+            log_error(f"Failed to restore. Manual restore: git reset --hard {backup_branch}")
+        sys.exit(1)
+    finally:
+        os.unlink(mapping_file)
+        os.unlink(filter_script.name)
+
+    print()
+    log_success("History rewritten successfully!")
+    print()
+    log_info(f"Backup branch: {backup_branch}")
+    log_info(f"To restore: git reset --hard {backup_branch}")
+    print()
+
+    if has_remotes():
+        log_warning("Remember: You need to force push to update remote")
+        log_warning("  git push --force-with-lease")
+
+
+if __name__ == '__main__':
+    main()

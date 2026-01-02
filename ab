@@ -7,26 +7,28 @@ SCRIPT_DIR="$(dirname -- "$SCRIPT_PATH")"
 show_help() {
     echo "ab - Allan Batista's CLI utilities"
     echo ""
-    echo "Uso: ab <categoria|comando> [argumentos...]"
+    echo "Usage: ab <category|command> [arguments...]"
     echo ""
-    echo "Categorias:"
+    echo "Categories:"
     echo "  git               Git utilities powered by LLM"
     echo "  util              General utilities"
     echo ""
-    echo "Comandos:"
-    echo "  prompt            Envia contexto para LLM (OpenRouter)"
+    echo "Commands:"
+    echo "  prompt            Send context to LLM (OpenRouter)"
+    echo "  config            Manage configuration"
     echo ""
-    echo "Exemplos:"
+    echo "Examples:"
     echo "  ab git auto-commit -a -y"
     echo "  ab git pr-description -c"
     echo "  ab util passgenerator 16"
-    echo "  ab prompt -p 'oi'"
+    echo "  ab prompt -p 'hello'"
+    echo "  ab config show"
     echo ""
-    echo "Use 'ab <categoria> help' para ver comandos da categoria"
-    echo "Use 'ab <categoria> <comando> --help' para mais detalhes"
+    echo "Use 'ab <category> help' to see category commands"
+    echo "Use 'ab <category> <command> --help' for more details"
 }
 
-# Se nenhum argumento, mostra help
+# If no arguments, show help
 if [ $# -eq 0 ]; then
     show_help
     exit 0
@@ -42,12 +44,12 @@ case "$COMMAND" in
     git|util)
         exec "$SCRIPT_DIR/ab-$COMMAND" "$@"
         ;;
-    prompt)
-        exec "$SCRIPT_DIR/$COMMAND" "$@"
+    prompt|config)
+        exec "$SCRIPT_DIR/ab-$COMMAND" "$@"
         ;;
     *)
-        echo "Erro: comando desconhecido '$COMMAND'"
-        echo "Use 'ab help' para ver comandos disponiveis"
+        echo "Error: unknown command '$COMMAND'"
+        echo "Use 'ab help' to see available commands"
         exit 1
         ;;
 esac

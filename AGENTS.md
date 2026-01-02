@@ -7,20 +7,23 @@ This repository contains unified CLI utilities under the `ab` command. Current s
 ```
 ai-linux-dev-utilities/
 ├── ab                    # Main command (dispatcher)
+├── ab-config             # Configuration management CLI
 ├── ab-git                # Sub-dispatcher for git commands
 ├── ab-util               # Sub-dispatcher for utilities
+├── ab-prompt             # Bash wrapper for prompt.py
 ├── ab.bash-completion    # Bash autocompletion
-├── auto-commit           # Generate commit messages via LLM
-├── pr-description        # Generate PR title/description via LLM
-├── rewrite-history       # Rewrite commit messages via LLM
-├── prompt                # Bash wrapper for prompt.py
+├── lib/                  # Shared Python libraries
+│   └── ab_config.py      # Centralized configuration module
+├── auto_commit.py        # Generate commit messages via LLM
+├── pr_description.py     # Generate PR title/description via LLM
+├── rewrite_history.py    # Rewrite commit messages via LLM
 ├── prompt.py             # CLI to send context to OpenRouter
 ├── passgenerator         # Secure password generator
 ├── install.sh            # Installation script (local and remote)
 └── requirements.txt      # Python dependencies
 ```
 
-User settings are stored in `~/.prompt/config.json`. Call history in `~/.prompt/history/`.
+User settings are stored in `~/.ab/config.json`. Call history in `~/.ab/history/`.
 
 ## Available Commands
 
@@ -34,7 +37,19 @@ ab util <command>       # General utilities
 
 # Root commands:
 ab prompt               # Send context to LLM (OpenRouter)
+ab config               # Manage configuration
 ab help                 # Show help
+```
+
+### ab config (configuration management)
+```bash
+ab config show              # Display current configuration
+ab config get <key>         # Get a specific config value
+ab config set <key> <value> # Set a config value
+ab config init              # Create default configuration
+ab config path              # Show config file path
+ab config edit              # Open config in editor
+ab config list-keys         # List all available config keys
 ```
 
 ### ab git (git commands)
@@ -149,25 +164,72 @@ ln -s $(pwd)/ab.bash-completion ~/.local/share/bash-completion/completions/ab
 export OPENROUTER_API_KEY="your-api-key-here"
 ```
 
-### Persistent Config (~/.prompt/config.json)
+### Configuration File (~/.ab/config.json)
+
+Create or manage with `ab config`:
+```bash
+ab config init              # Create default config
+ab config show              # View current config
+ab config set global.language pt-br    # Change language
+ab config set models.default "openai/gpt-4o"  # Change default model
+```
+
+**Full config structure:**
 ```json
 {
-  "model": "nvidia/nemotron-3-nano-30b-a3b:free",
-  "api_base": "https://openrouter.ai/api/v1",
-  "api_key_env": "OPENROUTER_API_KEY",
-  "request": { "timeout_seconds": 300 }
+  "version": "1.0",
+  "global": {
+    "language": "en",
+    "api_base": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "timeout_seconds": 300
+  },
+  "models": {
+    "small": "nvidia/nemotron-3-nano-30b-a3b:free",
+    "medium": "openai/gpt-5-nano",
+    "large": "x-ai/grok-4.1-fast",
+    "default": "nvidia/nemotron-3-nano-30b-a3b:free",
+    "thresholds": {
+      "small_max_tokens": 128000,
+      "medium_max_tokens": 256000
+    }
+  },
+  "commands": {
+    "rewrite-history": {
+      "smart_mode": true,
+      "skip_merges": true
+    },
+    "prompt": {
+      "max_tokens": 900000,
+      "max_tokens_doc": 250000,
+      "max_completion_tokens": 16000
+    }
+  },
+  "history": {
+    "enabled": true,
+    "directory": "~/.ab/history"
+  }
 }
 ```
 
+### Config Precedence
+
+1. CLI arguments (highest priority)
+2. Command-specific config (`commands.<cmd>.<key>`)
+3. Global config (`global.<key>`)
+4. Hardcoded defaults (lowest)
+
 ## Automatic Model Selection
 
-The `auto-commit`, `pr-description` and `rewrite-history` scripts automatically select models based on diff size:
+The `auto-commit`, `pr-description` and `rewrite-history` commands automatically select models based on diff size:
 
 | Estimated Tokens | Model |
 |------------------|-------|
 | ≤ 128k | `nvidia/nemotron-3-nano-30b-a3b:free` |
 | ≤ 256k | `openai/gpt-5-nano` |
 | > 256k | `x-ai/grok-4.1-fast` |
+
+These thresholds and models are configurable via `ab config`.
 
 ## Coding Style & Naming Conventions
 
@@ -188,6 +250,6 @@ ab git pr-description -c        # Generate and create PR
 
 ## Security & Configuration Tips
 
-- Do not commit `~/.prompt/config.json` or files containing keys
+- Do not commit `~/.ab/config.json` or files containing keys
 - Load `OPENROUTER_API_KEY` from environment
 - Avoid echoing secrets in logs
