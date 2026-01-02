@@ -7,28 +7,40 @@ Unified CLI utilities for development workflows, powered by LLMs via OpenRouter.
 ### Quick Install (Recommended)
 
 ```bash
-# Clone the repository
-git clone git@github.com:allanbatista/ai-linux-dev-utilities.git
-cd linux-utilities
-
-# Run the installer
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/allanbatista/ai-linux-dev-utilities/master/install.sh | bash
 ```
 
-The installer will:
+This will:
+- Clone the repository to `~/.local/share/ai-linux-dev-utilities`
 - Create a Python virtual environment
 - Install all dependencies
 - Optionally create a symlink at `/usr/local/bin/ab`
 - Optionally enable bash autocompletion
 
+#### Install Options
+
+```bash
+# Install to custom directory
+curl -fsSL https://raw.githubusercontent.com/allanbatista/ai-linux-dev-utilities/master/install.sh | bash -s -- -d ~/my-custom-dir
+
+# Skip confirmation prompts (auto-accept all)
+curl -fsSL https://raw.githubusercontent.com/allanbatista/ai-linux-dev-utilities/master/install.sh | bash -s -- -y
+
+# Show help
+curl -fsSL https://raw.githubusercontent.com/allanbatista/ai-linux-dev-utilities/master/install.sh | bash -s -- -h
+```
+
 ### Manual Installation
 
 ```bash
 # Clone the repository
-git clone git@github.com:allanbatista/ai-linux-dev-utilities.git
-cd linux-utilities
+git clone https://github.com/allanbatista/ai-linux-dev-utilities.git
+cd ai-linux-dev-utilities
 
-# Create virtual environment and install dependencies
+# Run the local installer
+./install.sh
+
+# Or manually:
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 

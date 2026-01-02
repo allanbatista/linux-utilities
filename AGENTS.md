@@ -2,140 +2,154 @@
 
 ## Project Structure & Module Organization
 
-O repositório contém utilitários CLI unificados sob o comando `ab`. Estrutura atual:
+This repository contains unified CLI utilities under the `ab` command. Current structure:
 
 ```
-linux-utilities/
-├── ab                    # Comando principal (dispatcher)
-├── ab-git                # Sub-dispatcher para comandos git
-├── ab-util               # Sub-dispatcher para utilitários
-├── ab.bash-completion    # Autocompletion para bash
-├── auto-commit           # Gera mensagens de commit via LLM
-├── pr-description        # Gera título/descrição de PR via LLM
-├── rewrite-history       # Reescreve mensagens de commit via LLM
-├── prompt                # Wrapper bash para prompt.py
-├── prompt.py             # CLI para enviar contexto ao OpenRouter
-├── passgenerator         # Gerador de senhas seguras
-└── requirements.txt      # Dependências Python
+ai-linux-dev-utilities/
+├── ab                    # Main command (dispatcher)
+├── ab-git                # Sub-dispatcher for git commands
+├── ab-util               # Sub-dispatcher for utilities
+├── ab.bash-completion    # Bash autocompletion
+├── auto-commit           # Generate commit messages via LLM
+├── pr-description        # Generate PR title/description via LLM
+├── rewrite-history       # Rewrite commit messages via LLM
+├── prompt                # Bash wrapper for prompt.py
+├── prompt.py             # CLI to send context to OpenRouter
+├── passgenerator         # Secure password generator
+├── install.sh            # Installation script (local and remote)
+└── requirements.txt      # Python dependencies
 ```
 
-Configurações do usuário ficam em `~/.prompt/config.json`. Histórico de chamadas em `~/.prompt/history/`.
+User settings are stored in `~/.prompt/config.json`. Call history in `~/.prompt/history/`.
 
-## Comandos Disponíveis
+## Available Commands
 
-### ab (comando unificado)
+### ab (unified command)
 ```bash
-ab <categoria|comando> [argumentos...]
+ab <category|command> [arguments...]
 
-# Categorias:
-ab git <comando>        # Utilitários git powered by LLM
-ab util <comando>       # Utilitários gerais
+# Categories:
+ab git <command>        # Git utilities powered by LLM
+ab util <command>       # General utilities
 
-# Comandos raiz:
-ab prompt               # Envia contexto para LLM (OpenRouter)
-ab help                 # Mostra ajuda
+# Root commands:
+ab prompt               # Send context to LLM (OpenRouter)
+ab help                 # Show help
 ```
 
-### ab git (comandos git)
+### ab git (git commands)
 ```bash
-ab git auto-commit      # Gera mensagem de commit via LLM
-ab git pr-description   # Gera título/descrição de PR via LLM
-ab git rewrite-history  # Reescreve mensagens de commit via LLM
-ab git help             # Mostra ajuda da categoria
+ab git auto-commit      # Generate commit message via LLM
+ab git pr-description   # Generate PR title/description via LLM
+ab git rewrite-history  # Rewrite commit messages via LLM
+ab git help             # Show category help
 ```
 
-### ab util (utilitários)
+### ab util (utilities)
 ```bash
-ab util passgenerator   # Gerador de senhas seguras
-ab util help            # Mostra ajuda da categoria
+ab util passgenerator   # Secure password generator
+ab util help            # Show category help
 ```
 
 ### ab git auto-commit
-Gera mensagens de commit automaticamente analisando o diff staged.
+Automatically generate commit messages by analyzing staged diff.
 ```bash
-ab git auto-commit              # Gera mensagem e confirma
-ab git auto-commit -a           # Adiciona todos os arquivos (git add -A)
-ab git auto-commit -y           # Pula confirmação
-ab git auto-commit -a -y        # Adiciona tudo e commita sem confirmar
+ab git auto-commit              # Generate message and confirm
+ab git auto-commit -a           # Add all files (git add -A)
+ab git auto-commit -y           # Skip confirmation
+ab git auto-commit -a -y        # Add all and commit without confirmation
 ```
 
 ### ab git pr-description
-Gera título e descrição de PR analisando commits e diff relativos à branch base.
+Generate PR title and description by analyzing commits and diff relative to base branch.
 ```bash
-ab git pr-description              # Gera título e descrição
-ab git pr-description -c           # Gera e cria PR via gh CLI
-ab git pr-description -c -d        # Cria como draft
-ab git pr-description -b develop   # Especifica branch base
-ab git pr-description -c -y        # Cria PR sem confirmar
+ab git pr-description              # Generate title and description
+ab git pr-description -c           # Generate and create PR via gh CLI
+ab git pr-description -c -d        # Create as draft
+ab git pr-description -b develop   # Specify base branch
+ab git pr-description -c -y        # Create PR without confirmation
 ```
 
 ### ab git rewrite-history
-Reescreve mensagens de commit do histórico git usando LLM.
+Rewrite commit messages in git history using LLM.
 ```bash
-ab git rewrite-history                     # Menu interativo para escolher modo
-ab git rewrite-history --dry-run           # Preview sem aplicar mudanças
-ab git rewrite-history HEAD~5..HEAD        # Reescreve últimos 5 commits
-ab git rewrite-history -y -l pt-br         # Batch mode em português
-ab git rewrite-history --force-all         # Força reescrita de todos
-ab git rewrite-history --smart             # LLM decide quais precisam reescrita
+ab git rewrite-history                     # Interactive menu to choose mode
+ab git rewrite-history --dry-run           # Preview without applying changes
+ab git rewrite-history HEAD~5..HEAD        # Rewrite last 5 commits
+ab git rewrite-history -y -l pt-br         # Batch mode in Portuguese
+ab git rewrite-history --force-all         # Force rewrite all
+ab git rewrite-history --smart             # LLM decides which need rewriting
 ```
 
-**Modos de operação:**
-- **Interativo**: Pergunta para cada commit se deve reescrever
-- **Smart**: LLM avalia se a mensagem precisa ser reescrita (commits < 5 palavras são reescritos automaticamente)
-- **Force-all**: Reescreve todos os commits no range
+**Operation modes:**
+- **Interactive**: Prompts for each commit whether to rewrite
+- **Smart**: LLM evaluates if message needs rewriting (commits < 5 words are auto-rewritten)
+- **Force-all**: Rewrites all commits in range
 
-**Segurança:**
-- Cria branch de backup antes de alterar (`backup/pre-rewrite-TIMESTAMP`)
-- Warning se commits já foram pushados (requer force push)
-- Modo `--dry-run` para preview completo
+**Safety features:**
+- Creates backup branch before changes (`backup/pre-rewrite-TIMESTAMP`)
+- Warning if commits were already pushed (requires force push)
+- `--dry-run` mode for full preview
 
 ### ab prompt
-Envia contexto de arquivos para o OpenRouter e retorna resposta do LLM.
+Send file context to OpenRouter and return LLM response.
 ```bash
-ab prompt -p "pergunta"                    # Envia prompt simples
-ab prompt arquivo.py -p "explique"         # Envia arquivo como contexto
-ab prompt src/ -p "resuma o código"        # Envia diretório inteiro
-ab prompt --model "openai/gpt-4o" -p "oi"  # Especifica modelo
-ab prompt --only-output -p "oi"            # Retorna apenas resposta
-ab prompt --set-default-model "modelo"     # Define modelo padrão
+ab prompt -p "question"                    # Send simple prompt
+ab prompt file.py -p "explain"             # Send file as context
+ab prompt src/ -p "summarize the code"     # Send entire directory
+ab prompt --model "openai/gpt-4o" -p "hi"  # Specify model
+ab prompt --only-output -p "hi"            # Return only response
+ab prompt --set-default-model "model"      # Set default model
 ```
 
 ### ab util passgenerator
-Gera senhas seguras com validações.
+Generate secure passwords with validations.
 ```bash
-ab util passgenerator 16                    # Senha de 16 caracteres
-ab util passgenerator 20 --min-digits 4     # Mínimo 4 dígitos
-ab util passgenerator 12 --no-punct         # Sem pontuação
+ab util passgenerator 16                    # 16-character password
+ab util passgenerator 20 --min-digits 4     # Minimum 4 digits
+ab util passgenerator 12 --no-punct         # No punctuation
 ```
 
-## Instalação
+## Installation
 
+### Quick Install (Recommended)
 ```bash
-# Clonar repositório
-git clone <repo-url>
-cd linux-utilities
+curl -fsSL https://raw.githubusercontent.com/allanbatista/ai-linux-dev-utilities/master/install.sh | bash
+```
 
-# Instalar dependências Python
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+### Install with Options
+```bash
+# Custom directory
+curl -fsSL https://raw.githubusercontent.com/allanbatista/ai-linux-dev-utilities/master/install.sh | bash -s -- -d ~/my-directory
 
-# Adicionar ao PATH (opcional)
+# Skip confirmations (accept all)
+curl -fsSL https://raw.githubusercontent.com/allanbatista/ai-linux-dev-utilities/master/install.sh | bash -s -- -y
+```
+
+### Manual Installation
+```bash
+# Clone repository
+git clone https://github.com/allanbatista/ai-linux-dev-utilities.git
+cd ai-linux-dev-utilities
+
+# Run local installer
+./install.sh
+
+# Or manually:
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 sudo ln -s $(pwd)/ab /usr/local/bin/ab
-
-# Ativar autocompletion
 mkdir -p ~/.local/share/bash-completion/completions
 ln -s $(pwd)/ab.bash-completion ~/.local/share/bash-completion/completions/ab
 ```
 
-## Configuração
+## Configuration
 
 ### OpenRouter API Key
 ```bash
-export OPENROUTER_API_KEY="sua-chave-aqui"
+export OPENROUTER_API_KEY="your-api-key-here"
 ```
 
-### Config persistente (~/.prompt/config.json)
+### Persistent Config (~/.prompt/config.json)
 ```json
 {
   "model": "nvidia/nemotron-3-nano-30b-a3b:free",
@@ -145,35 +159,35 @@ export OPENROUTER_API_KEY="sua-chave-aqui"
 }
 ```
 
-## Seleção Automática de Modelo
+## Automatic Model Selection
 
-Os scripts `auto-commit`, `pr-description` e `rewrite-history` selecionam automaticamente o modelo baseado no tamanho do diff:
+The `auto-commit`, `pr-description` and `rewrite-history` scripts automatically select models based on diff size:
 
-| Tokens estimados | Modelo |
-|------------------|--------|
+| Estimated Tokens | Model |
+|------------------|-------|
 | ≤ 128k | `nvidia/nemotron-3-nano-30b-a3b:free` |
 | ≤ 256k | `openai/gpt-5-nano` |
 | > 256k | `x-ai/grok-4.1-fast` |
 
 ## Coding Style & Naming Conventions
 
-- **Python**: PEP 8, 4-space indents, `snake_case` para funções
-- **Bash**: POSIX-friendly, usar `shellcheck` para validação
+- **Python**: PEP 8, 4-space indents, `snake_case` for functions
+- **Bash**: POSIX-friendly, use `shellcheck` for validation
 - **CLI options**: kebab-case (`--only-output`, `--max-tokens`)
-- Type hints em código Python novo
+- Type hints in new Python code
 
 ## Commit & Pull Request Guidelines
 
-Use conventional commit prefixes (`feat:`, `fix:`, `chore:`) com resumos imperativos. O próprio `ab git auto-commit` pode ser usado para gerar mensagens.
+Use conventional commit prefixes (`feat:`, `fix:`, `chore:`) with imperative summaries. You can use `ab git auto-commit` to generate messages.
 
 ```bash
-# Workflow recomendado
-ab git auto-commit -a           # Gera e faz commit
-ab git pr-description -c        # Gera e cria PR
+# Recommended workflow
+ab git auto-commit -a           # Generate and commit
+ab git pr-description -c        # Generate and create PR
 ```
 
 ## Security & Configuration Tips
 
-- Não commitar `~/.prompt/config.json` ou arquivos com chaves
-- Carregar `OPENROUTER_API_KEY` do ambiente
-- Evitar ecoar secrets em logs
+- Do not commit `~/.prompt/config.json` or files containing keys
+- Load `OPENROUTER_API_KEY` from environment
+- Avoid echoing secrets in logs
