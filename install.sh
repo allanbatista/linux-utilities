@@ -29,14 +29,12 @@ detect_install_mode() {
 
         # If we're in a directory with the bin/ab script, assume local install
         if [[ -f "$script_dir/bin/ab" && -f "$script_dir/requirements.txt" ]]; then
-            echo "local"
-            echo "$script_dir"
+            echo "local $script_dir"
             return
         fi
     fi
 
-    echo "remote"
-    echo "$DEFAULT_INSTALL_DIR"
+    echo "remote $DEFAULT_INSTALL_DIR"
 }
 
 # Parse command line arguments
