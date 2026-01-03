@@ -2,25 +2,48 @@
 
 ## Project Structure & Module Organization
 
-This repository contains unified CLI utilities under the `ab` command. Current structure:
+This repository contains unified CLI utilities under the `ab` command. Project follows Python src-layout:
 
 ```
 ai-linux-dev-utilities/
-├── ab                    # Main command (dispatcher)
-├── ab-config             # Configuration management CLI
-├── ab-git                # Sub-dispatcher for git commands
-├── ab-util               # Sub-dispatcher for utilities
-├── ab-prompt             # Bash wrapper for prompt.py
-├── ab.bash-completion    # Bash autocompletion
-├── lib/                  # Shared Python libraries
-│   └── ab_config.py      # Centralized configuration module
-├── auto_commit.py        # Generate commit messages via LLM
-├── pr_description.py     # Generate PR title/description via LLM
-├── rewrite_history.py    # Rewrite commit messages via LLM
-├── prompt.py             # CLI to send context to OpenRouter
-├── passgenerator         # Secure password generator
-├── install.sh            # Installation script (local and remote)
-└── requirements.txt      # Python dependencies
+├── bin/                          # Bash dispatchers (entry points)
+│   ├── ab                        # Main command (dispatcher)
+│   ├── ab-config                 # Configuration CLI wrapper
+│   ├── ab-git                    # Sub-dispatcher for git commands
+│   ├── ab-util                   # Sub-dispatcher for utilities
+│   └── ab-prompt                 # Prompt wrapper
+│
+├── src/ab_cli/                   # Python package (main implementation)
+│   ├── __init__.py
+│   ├── core/                     # Shared modules
+│   │   ├── __init__.py
+│   │   └── config.py             # Centralized configuration module
+│   ├── commands/                 # CLI commands
+│   │   ├── __init__.py
+│   │   ├── auto_commit.py        # Generate commit messages via LLM
+│   │   ├── pr_description.py     # Generate PR title/description via LLM
+│   │   ├── rewrite_history.py    # Rewrite commit messages via LLM
+│   │   ├── prompt.py             # CLI to send context to OpenRouter
+│   │   └── config_cli.py         # Configuration management CLI
+│   └── utils/
+│       └── __init__.py
+│
+├── scripts/                      # Standalone bash utilities
+│   └── passgenerator             # Secure password generator
+│
+├── tests/                        # Test directory
+│   ├── conftest.py               # pytest fixtures
+│   ├── unit/                     # Unit tests
+│   └── integration/              # Integration tests
+│
+├── completions/                  # Shell completions
+│   └── ab.bash-completion
+│
+├── pyproject.toml                # Modern Python packaging
+├── requirements.txt              # Python dependencies
+├── install.sh                    # Installation script
+├── AGENTS.md                     # This file
+└── README.md                     # User documentation
 ```
 
 User settings are stored in `~/.ab/config.json`. Call history in `~/.ab/history/`.
@@ -152,9 +175,9 @@ cd ai-linux-dev-utilities
 
 # Or manually:
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-sudo ln -s $(pwd)/ab /usr/local/bin/ab
+sudo ln -s $(pwd)/bin/ab /usr/local/bin/ab
 mkdir -p ~/.local/share/bash-completion/completions
-ln -s $(pwd)/ab.bash-completion ~/.local/share/bash-completion/completions/ab
+ln -s $(pwd)/completions/ab.bash-completion ~/.local/share/bash-completion/completions/ab
 ```
 
 ## Configuration

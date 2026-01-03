@@ -45,11 +45,11 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 
 # Add to PATH (optional - requires sudo)
-sudo ln -s $(pwd)/ab /usr/local/bin/ab
+sudo ln -s $(pwd)/bin/ab /usr/local/bin/ab
 
 # Enable bash autocompletion (optional)
 mkdir -p ~/.local/share/bash-completion/completions
-ln -s $(pwd)/ab.bash-completion ~/.local/share/bash-completion/completions/ab
+ln -s $(pwd)/completions/ab.bash-completion ~/.local/share/bash-completion/completions/ab
 ```
 
 ### Requirements

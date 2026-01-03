@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Directory where this wrapper is (resolves symlinks)
+SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname -- "$SCRIPT_PATH")"
+PROJECT_DIR="$(dirname -- "$SCRIPT_DIR")"
+
+# Python path setup
+VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
+export PYTHONPATH="$PROJECT_DIR/src"
+
+if [[ -x "$VENV_PYTHON" ]]; then
+    exec "$VENV_PYTHON" -m ab_cli.commands.config_cli "$@"
+else
+    # Fallback to system Python if venv doesn't exist
+    exec /usr/bin/python3 -m ab_cli.commands.config_cli "$@"
+fi

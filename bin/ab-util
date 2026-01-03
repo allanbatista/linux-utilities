@@ -3,16 +3,17 @@ set -euo pipefail
 
 SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname -- "$SCRIPT_PATH")"
+PROJECT_DIR="$(dirname -- "$SCRIPT_DIR")"
 
 show_help() {
     echo "ab util - General utilities"
     echo ""
-    echo "Uso: ab util <comando> [argumentos...]"
+    echo "Usage: ab util <command> [arguments...]"
     echo ""
-    echo "Comandos:"
-    echo "  passgenerator     Gerador de senhas seguras"
+    echo "Commands:"
+    echo "  passgenerator     Secure password generator"
     echo ""
-    echo "Use 'ab util <comando> --help' para mais detalhes"
+    echo "Use 'ab util <command> --help' for more details"
 }
 
 if [ $# -eq 0 ]; then
@@ -28,11 +29,11 @@ case "$COMMAND" in
         show_help
         ;;
     passgenerator)
-        exec "$SCRIPT_DIR/$COMMAND" "$@"
+        exec "$PROJECT_DIR/scripts/passgenerator" "$@"
         ;;
     *)
-        echo "Erro: comando util '$COMMAND' desconhecido"
-        echo "Use 'ab util help' para ver comandos disponiveis"
+        echo "Error: unknown util command '$COMMAND'"
+        echo "Use 'ab util help' to see available commands"
         exit 1
         ;;
 esac

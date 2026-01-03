@@ -6,18 +6,14 @@ Analyzes commits and regenerates messages via LLM.
 """
 import argparse
 import os
-import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-# Add parent directory to path for imports
-script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, script_dir)
-
-from lib.ab_config import get_config, estimate_tokens, get_language
+from ab_cli.core.config import get_config, estimate_tokens, get_language
 
 # ANSI colors
 RED = '\033[0;31m'
@@ -174,6 +170,20 @@ def create_backup_branch(name: Optional[str] = None) -> str:
 
     run_git('branch', name)
     return name
+
+
+def find_prompt_command() -> str:
+    """Find the ab-prompt command."""
+    import pathlib
+    module_dir = pathlib.Path(__file__).parent.parent.parent.parent
+    prompt_cmd = module_dir / 'bin' / 'ab-prompt'
+    if prompt_cmd.exists():
+        return str(prompt_cmd)
+
+    if shutil.which('ab-prompt'):
+        return 'ab-prompt'
+
+    raise FileNotFoundError("Could not find ab-prompt command")
 
 
 def needs_rewrite_llm(msg: str, prompt_cmd: str) -> bool:
@@ -334,9 +344,10 @@ Examples:
         sys.exit(1)
 
     # Find prompt command
-    prompt_cmd = os.path.join(script_dir, 'ab-prompt')
-    if not os.path.isfile(prompt_cmd):
-        log_error(f"Utility 'prompt' not found at {script_dir}")
+    try:
+        prompt_cmd = find_prompt_command()
+    except FileNotFoundError as e:
+        log_error(str(e))
         sys.exit(1)
 
     # Change to repo root

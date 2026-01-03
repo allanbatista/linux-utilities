@@ -33,6 +33,8 @@ from typing import Optional, Tuple, Dict, Any, List
 from binaryornot.check import is_binary
 import pathspec
 
+from ab_cli.core.config import get_config
+
 VERBOSE = True
 
 def pp(*args, **kwargs):
@@ -40,17 +42,12 @@ def pp(*args, **kwargs):
         print(*args, **kwargs)
 
 # =========================
-# Utilitários e Persistência
+# Utilities and Persistence
 # =========================
 
 def load_config() -> Dict[str, Any]:
     """Load config from ~/.ab/config.json using centralized config module."""
     try:
-        # Add script directory to path for imports
-        script_dir = pathlib.Path(__file__).parent
-        sys.path.insert(0, str(script_dir))
-        from lib.ab_config import get_config
-
         config = get_config()
         # Return in legacy format for compatibility
         return {
@@ -72,10 +69,6 @@ def persist_default_model(new_model: str) -> bool:
     preserving other fields. Creates the file if it doesn't exist.
     """
     try:
-        script_dir = pathlib.Path(__file__).parent
-        sys.path.insert(0, str(script_dir))
-        from lib.ab_config import get_config
-
         config = get_config()
         config.set("models.default", new_model)
         return True
@@ -90,8 +83,8 @@ def persist_default_model(new_model: str) -> bool:
 
 def build_specialist_prefix(specialist: Optional[str]) -> str:
     specialist_prompts = {
-        'dev': 'Aja como um programador sênior especialista em desenvolvimento de software, com mais de 20 anos de experiência. Suas respostas devem ser claras, eficientes, bem-estruturadas e seguir as melhores práticas do mercado. Pense passo a passo.',
-        'rm': 'Aja como um analista de Retail Media sênior, especialista em estratégias de publicidade digital para e-commerce e marketplaces. Seu conhecimento abrange plataformas como Amazon Ads, Mercado Ads e Criteo. Suas respostas devem ser analíticas, estratégicas e baseadas em dados.'
+        'dev': 'Act as a senior programmer specialized in software development, with over 20 years of experience. Your responses should be clear, efficient, well-structured and follow industry best practices. Think step by step.',
+        'rm': 'Act as a senior Retail Media analyst, specialized in digital advertising strategies for e-commerce and marketplaces. Your knowledge covers platforms like Amazon Ads, Mercado Ads and Criteo. Your responses should be analytical, strategic and data-driven.'
     }
     return specialist_prompts.get(specialist or "", "")
 
@@ -101,14 +94,14 @@ def send_to_openrouter(prompt: str, context: str, lang: str, specialist: Optiona
                         api_key_env: str = "OPENROUTER_API_KEY",
                         api_base: str = "https://openrouter.ai/api/v1") -> Optional[Dict[str, Any]]:
     """
-    Envia o prompt e o contexto para a API do OpenRouter (compatível com OpenAI).
+    Sends the prompt and context to the OpenRouter API (OpenAI compatible).
     """
     api_key = os.getenv(api_key_env)
     if not api_key:
-        pp(f"Erro: A variável de ambiente {api_key_env} não está definida.")
+        pp(f"Error: The environment variable {api_key_env} is not defined.")
         return None
 
-    # Construção do prompt completo
+    # Build full prompt
     parts = []
     specialist_prefix = build_specialist_prefix(specialist)
     if specialist_prefix:
@@ -117,9 +110,9 @@ def send_to_openrouter(prompt: str, context: str, lang: str, specialist: Optiona
     parts.append(prompt)
 
     if context.strip():
-        parts.append("\n--- CONTEXTO DOS ARQUIVOS ---\n" + context)
+        parts.append("\n--- FILE CONTEXT ---\n" + context)
 
-    parts.append(f"--- INSTRUÇÃO DE SAÍDA ---\nResponda estritamente na linguagem: {lang}.")
+    parts.append(f"--- OUTPUT INSTRUCTION ---\nRespond strictly in language: {lang}.")
 
     full_prompt = "\n\n".join(parts)
 
@@ -143,7 +136,7 @@ def send_to_openrouter(prompt: str, context: str, lang: str, specialist: Optiona
         payload["max_tokens"] = max_completion_tokens
 
     try:
-        pp(f"Enviando requisição para OpenRouter ({model_name})...")
+        pp(f"Sending request to OpenRouter ({model_name})...")
         response = requests.post(url, headers=headers, json=payload, timeout=timeout_s)
         response.raise_for_status()
         data = response.json()
@@ -163,27 +156,27 @@ def send_to_openrouter(prompt: str, context: str, lang: str, specialist: Optiona
         }
 
     except requests.exceptions.RequestException as e:
-        pp(f"Erro de rede ou HTTP ao chamar OpenRouter: {e}")
+        pp(f"Network or HTTP error calling OpenRouter: {e}")
         if getattr(e, 'response', None) is not None:
             try:
-                pp(f"Detalhes do erro: {e.response.text}")
+                pp(f"Error details: {e.response.text}")
             except Exception:
                 pass
         return None
     except (KeyError, IndexError) as e:
-        pp(f"Erro ao extrair conteúdo da resposta: {e}")
+        pp(f"Error extracting content from response: {e}")
         try:
-            pp("Estrutura da resposta recebida:", response.json())
+            pp("Response structure received:", response.json())
         except Exception:
             pass
         return None
     except Exception as e:
-        pp(f"Erro inesperado: {e}")
+        pp(f"Unexpected error: {e}")
         return None
 
 
 # =========================
-# Histórico e Persistência
+# History and Persistence
 # =========================
 
 def save_to_history(full_prompt: str, response_text: str, result: Dict[str, Any],
@@ -206,15 +199,15 @@ def save_to_history(full_prompt: str, response_text: str, result: Dict[str, Any]
         # History directory
         history_dir = pathlib.Path.home() / ".ab" / "history"
         history_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Nome do arquivo baseado em timestamp
+
+        # Filename based on timestamp
         timestamp = datetime.datetime.now()
         timestamp_str = timestamp.strftime("%Y%m%d_%H%M%S")
-        
-        # Hash do prompt para referência única
+
+        # Prompt hash for unique reference
         prompt_hash = hashlib.md5(full_prompt.encode('utf-8')).hexdigest()[:8]
-        
-        # Estrutura completa de dados
+
+        # Full data structure
         history_entry = {
             "metadata": {
                 "timestamp": timestamp.isoformat(),
@@ -251,7 +244,7 @@ def save_to_history(full_prompt: str, response_text: str, result: Dict[str, Any]
             },
             "configuration": {
                 "specialist": args.specialist if hasattr(args, 'specialist') else None,
-                "language": args.lang if hasattr(args, 'lang') else 'pt-br',
+                "language": args.lang if hasattr(args, 'lang') else 'en',
                 "max_tokens": args.max_tokens if hasattr(args, 'max_tokens') else None,
                 "max_tokens_doc": args.max_tokens_doc if hasattr(args, 'max_tokens_doc') else None,
                 "max_completion_tokens": 0 if getattr(args, 'unlimited', False) else (args.max_completion_tokens if hasattr(args, 'max_completion_tokens') else 16000),
@@ -280,33 +273,30 @@ def save_to_history(full_prompt: str, response_text: str, result: Dict[str, Any]
                 "response_lines": response_text.count('\n') + 1
             }
         }
-        
-        # Salvar arquivo individual
+
+        # Save individual file
         history_file = history_dir / f"history_{timestamp_str}_{prompt_hash}.json"
         with open(history_file, 'w', encoding='utf-8') as f:
             json.dump(history_entry, f, indent=2, ensure_ascii=False)
-        
-        # Atualizar índice mestre
+
+        # Update master index
         update_history_index(history_dir, history_entry)
-        
-        # # Limpar históricos antigos (manter últimos 100)
-        # cleanup_old_history(history_dir, keep_last=100)
-        
-        pp(f"💾 Histórico salvo: {history_file}")
-        
+
+        pp(f"History saved: {history_file}")
+
     except Exception as e:
-        pp(f"⚠️  Aviso: Não foi possível salvar o histórico: {e}")
+        pp(f"Warning: Could not save history: {e}")
 
 
 def calculate_estimated_cost(model: str, prompt_tokens: int, response_tokens: int) -> float:
     """
-    Calcula o custo estimado baseado no modelo e tokens utilizados.
-    Valores aproximados (podem variar).
+    Calculate estimated cost based on model and tokens used.
+    Approximate values (may vary).
     """
     if not isinstance(prompt_tokens, int) or not isinstance(response_tokens, int):
         return 0.0
-    
-    # Preços aproximados por 1M tokens (USD) - atualizar conforme necessário
+
+    # Approximate prices per 1M tokens (USD) - update as needed
     pricing = {
         # OpenAI
         'gpt-4o': {'prompt': 2.50, 'response': 10.00},
@@ -314,38 +304,38 @@ def calculate_estimated_cost(model: str, prompt_tokens: int, response_tokens: in
         'gpt-4-turbo': {'prompt': 10.00, 'response': 30.00},
         'gpt-4': {'prompt': 30.00, 'response': 60.00},
         'gpt-3.5-turbo': {'prompt': 0.50, 'response': 1.50},
-        
-        # Google Gemini (estimativas)
+
+        # Google Gemini (estimates)
         'gemini-1.5-pro': {'prompt': 3.50, 'response': 10.50},
         'gemini-1.5-flash': {'prompt': 0.075, 'response': 0.30},
         'gemini-pro': {'prompt': 0.50, 'response': 1.50},
     }
-    
-    # Encontrar preço do modelo
+
+    # Find model price
     model_lower = model.lower()
     price_info = None
-    
+
     for model_key, prices in pricing.items():
         if model_key in model_lower:
             price_info = prices
             break
-    
+
     if not price_info:
         return 0.0
-    
-    # Calcular custo
+
+    # Calculate cost
     prompt_cost = (prompt_tokens / 1_000_000) * price_info['prompt']
     response_cost = (response_tokens / 1_000_000) * price_info['response']
-    
+
     return round(prompt_cost + response_cost, 6)
 
 
 def update_history_index(history_dir: pathlib.Path, entry: Dict[str, Any]) -> None:
     """
-    Atualiza o arquivo índice mestre com resumo das interações.
+    Update the master index file with interaction summary.
     """
     index_file = history_dir / "index.json"
-    
+
     try:
         if index_file.exists():
             with open(index_file, 'r', encoding='utf-8') as f:
@@ -358,8 +348,8 @@ def update_history_index(history_dir: pathlib.Path, entry: Dict[str, Any]) -> No
                 "total_estimated_cost": 0.0,
                 "interactions": []
             }
-        
-        # Adicionar resumo da interação
+
+        # Add interaction summary
         summary = {
             "session_id": entry['metadata']['session_id'],
             "timestamp": entry['metadata']['timestamp'],
@@ -370,29 +360,29 @@ def update_history_index(history_dir: pathlib.Path, entry: Dict[str, Any]) -> No
             "files_processed": entry['files_info']['processed_count'],
             "response_preview": entry['content']['response']['preview']
         }
-        
-        index['interactions'].insert(0, summary)  # Mais recente primeiro
+
+        index['interactions'].insert(0, summary)  # Most recent first
         index['total_interactions'] = len(index['interactions'])
-        
-        # Atualizar totais
+
+        # Update totals
         if isinstance(entry['tokens'].get('total_tokens'), int):
             index['total_tokens_used'] += entry['tokens']['total_tokens']
-        
+
         if isinstance(entry['tokens'].get('estimated_cost_usd'), (int, float)):
             index['total_estimated_cost'] += entry['tokens']['estimated_cost_usd']
             index['total_estimated_cost'] = round(index['total_estimated_cost'], 6)
-        
-        # Salvar índice
+
+        # Save index
         with open(index_file, 'w', encoding='utf-8') as f:
             json.dump(index, f, indent=2, ensure_ascii=False)
-            
+
     except Exception as e:
-        pp(f"⚠️  Aviso: Não foi possível atualizar o índice: {e}")
+        pp(f"Warning: Could not update index: {e}")
 
 
 def cleanup_old_history(history_dir: pathlib.Path, keep_last: int = 100) -> None:
     """
-    Remove arquivos de histórico mais antigos, mantendo apenas os últimos N.
+    Remove old history files, keeping only the last N.
     """
     try:
         history_files = sorted(
@@ -400,49 +390,49 @@ def cleanup_old_history(history_dir: pathlib.Path, keep_last: int = 100) -> None
             key=lambda p: p.stat().st_mtime,
             reverse=True
         )
-        
+
         if len(history_files) > keep_last:
             for old_file in history_files[keep_last:]:
                 old_file.unlink()
-                
+
     except Exception as e:
-        # Não crítico, apenas log silencioso
+        # Non-critical, silent log
         pass
 
 
 # =========================
-# Detecção de Binários
+# Binary Detection
 # =========================
 
 def is_binary_file(file_path: pathlib.Path) -> bool:
     """
-    Detecta se um arquivo é binário usando a biblioteca binaryornot.
+    Detect if a file is binary using the binaryornot library.
 
     Args:
-        file_path: Caminho do arquivo a verificar.
+        file_path: Path of the file to check.
 
     Returns:
-        True se o arquivo é binário, False se é texto.
+        True if the file is binary, False if it's text.
     """
     try:
         return is_binary(str(file_path))
     except Exception:
-        return True  # Se não conseguir ler, assume binário
+        return True  # If can't read, assume binary
 
 
 # =========================
-# Suporte a .aiignore
+# .aiignore Support
 # =========================
 
 def find_git_root(start_path: pathlib.Path) -> Optional[pathlib.Path]:
     """
-    Encontra a raiz do repositório git a partir do caminho inicial.
+    Find the git repository root from the starting path.
 
     Args:
-        start_path: Caminho inicial para busca.
+        start_path: Starting path for search.
 
     Returns:
-        Caminho da raiz do git ou None se não estiver em um repositório.
+        Git root path or None if not in a repository.
     """
     try:
         result = subprocess.run(
@@ -458,13 +448,13 @@ def find_git_root(start_path: pathlib.Path) -> Optional[pathlib.Path]:
 
 def find_aiignore_files(start_path: pathlib.Path) -> List[pathlib.Path]:
     """
-    Procura arquivos .aiignore do diretório inicial até a raiz do git.
+    Search for .aiignore files from starting directory to git root.
 
     Args:
-        start_path: Caminho inicial para busca.
+        start_path: Starting path for search.
 
     Returns:
-        Lista de caminhos de arquivos .aiignore encontrados (do mais específico ao mais geral).
+        List of .aiignore file paths found (from most specific to most general).
     """
     aiignore_files = []
     current = start_path.resolve()
@@ -475,7 +465,7 @@ def find_aiignore_files(start_path: pathlib.Path) -> List[pathlib.Path]:
         if aiignore_path.exists() and aiignore_path.is_file():
             aiignore_files.append(aiignore_path)
 
-        # Para na raiz do git se encontrada
+        # Stop at git root if found
         if git_root and current == git_root:
             break
 
@@ -486,24 +476,24 @@ def find_aiignore_files(start_path: pathlib.Path) -> List[pathlib.Path]:
 
 def load_aiignore_spec(aiignore_files: List[pathlib.Path]) -> Optional[pathspec.GitIgnoreSpec]:
     """
-    Carrega e combina padrões de múltiplos arquivos .aiignore.
+    Load and combine patterns from multiple .aiignore files.
 
     Args:
-        aiignore_files: Lista de caminhos de .aiignore (do mais específico ao mais geral).
+        aiignore_files: List of .aiignore paths (from most specific to most general).
 
     Returns:
-        Spec combinado ou None se não houver padrões.
+        Combined spec or None if no patterns.
     """
     all_patterns = []
 
-    # Processa do mais geral (raiz) para o mais específico
+    # Process from most general (root) to most specific
     for aiignore_path in reversed(aiignore_files):
         try:
             with open(aiignore_path, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
             all_patterns.extend(lines)
         except Exception as e:
-            pp(f"Aviso: Erro ao ler {aiignore_path}: {e}")
+            pp(f"Warning: Error reading {aiignore_path}: {e}")
 
     if not all_patterns:
         return None
@@ -517,15 +507,15 @@ def should_ignore_path(
     base_path: pathlib.Path
 ) -> bool:
     """
-    Verifica se um arquivo deve ser ignorado com base nos padrões .aiignore.
+    Check if a file should be ignored based on .aiignore patterns.
 
     Args:
-        file_path: Caminho absoluto do arquivo.
-        spec: Spec compilado do GitIgnore (ou None).
-        base_path: Caminho base para cálculo de caminho relativo.
+        file_path: Absolute path of the file.
+        spec: Compiled GitIgnore spec (or None).
+        base_path: Base path for relative path calculation.
 
     Returns:
-        True se o arquivo deve ser ignorado.
+        True if the file should be ignored.
     """
     if spec is None:
         return False
@@ -534,25 +524,25 @@ def should_ignore_path(
         rel_path = file_path.relative_to(base_path)
         return spec.match_file(str(rel_path))
     except ValueError:
-        # file_path não é relativo a base_path
+        # file_path is not relative to base_path
         return spec.match_file(str(file_path))
 
 
 # =========================
-# Processamento de Arquivos
+# File Processing
 # =========================
 
 def process_file(file_path: pathlib.Path, path_format: str, max_tokens_doc: int) -> Tuple[str, int, int]:
     """
-    Lê o conteúdo de um arquivo, formata o cabeçalho e trunca se necessário com base em tokens.
+    Read file content, format header and truncate if necessary based on tokens.
 
     Args:
-        file_path: O caminho do arquivo a ser processado.
-        path_format: Como o caminho deve ser formatado ('full', 'relative', 'name_only').
-        max_tokens_doc: O número máximo de tokens estimados para este arquivo.
+        file_path: Path of the file to process.
+        path_format: How the path should be formatted ('full', 'relative', 'name_only').
+        max_tokens_doc: Maximum estimated tokens for this file.
 
     Returns:
-        Uma tupla contendo o conteúdo formatado, a contagem de palavras e os tokens estimados.
+        Tuple containing formatted content, word count and estimated tokens.
     """
     try:
         display_path = ""
@@ -565,7 +555,7 @@ def process_file(file_path: pathlib.Path, path_format: str, max_tokens_doc: int)
 
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        
+
         original_tokens = len(content) // 4
         warning_message = ""
 
@@ -577,12 +567,12 @@ def process_file(file_path: pathlib.Path, path_format: str, max_tokens_doc: int)
                 f"original_token_count=\"{original_tokens}\" "
                 f"new_token_count=\"{max_tokens_doc}\"\n"
             )
-            pp(f"  -> Aviso: O arquivo '{display_path}' foi truncado para ~{max_tokens_doc} tokens.")
+            pp(f"  -> Warning: File '{display_path}' was truncated to ~{max_tokens_doc} tokens.")
 
         word_count = len(content.split())
         estimated_tokens = len(content) // 4
         formatted_content = f"// filename=\"{display_path}\"\n{warning_message}{content}\n"
-        
+
         return formatted_content, word_count, estimated_tokens
     except Exception as e:
         error_message = f"// error_processing_file=\"{file_path.resolve()}\"\n// Error: {e}\n"
@@ -590,11 +580,11 @@ def process_file(file_path: pathlib.Path, path_format: str, max_tokens_doc: int)
 
 
 # =========================
-# Configuração Efetiva
+# Effective Configuration
 # =========================
 
 def resolve_settings(args, config: Dict[str, Any]) -> Dict[str, Any]:
-    """Resolve model/timeout/api_base/api_key_env a partir de args + config."""
+    """Resolve model/timeout/api_base/api_key_env from args + config."""
     # Model precedence: CLI > config > default
     model = args.model or config.get("model") or "nvidia/nemotron-3-nano-30b-a3b:free"
 
@@ -620,12 +610,12 @@ def resolve_settings(args, config: Dict[str, Any]) -> Dict[str, Any]:
 # =========================
 
 def main():
-    """Função principal que orquestra a execução do script."""
+    """Main function that orchestrates script execution."""
     parser = argparse.ArgumentParser(
         description=(
-            "Concatena o conteúdo de arquivos de texto (ignora binários) e "
-            "opcionalmente envia para a API do OpenRouter.\n"
-            "Use .aiignore para excluir arquivos (sintaxe igual ao .gitignore)."
+            "Concatenate text file contents (ignores binaries) and "
+            "optionally send to OpenRouter API.\n"
+            "Use .aiignore to exclude files (gitignore syntax)."
         ),
         formatter_class=argparse.RawTextHelpFormatter
     )
@@ -634,12 +624,12 @@ def main():
         metavar="PATH",
         type=pathlib.Path,
         nargs='*',
-        help="Uma lista de arquivos e/ou diretórios para processar."
+        help="A list of files and/or directories to process."
     )
     parser.add_argument(
         "-p", "--prompt",
         type=str,
-        help="Um prompt opcional para enviar à API. Use '-' para ler do stdin."
+        help="An optional prompt to send to the API. Use '-' to read from stdin."
     )
     parser.add_argument(
         '--lang',
@@ -651,94 +641,94 @@ def main():
         '-n', '--max-tokens',
         type=int,
         default=900_000,
-        help='Tamanho máximo em tokens estimados para o contexto total. Padrão: 900000'
+        help='Maximum estimated tokens for total context. Default: 900000'
     )
     parser.add_argument(
         '-nn', '--max-tokens-doc',
         type=int,
         default=250_000,
-        help='Tamanho máximo em tokens estimados para cada arquivo individual. Padrão: 250000'
+        help='Maximum estimated tokens per individual file. Default: 250000'
     )
     parser.add_argument(
         '-s', '--specialist',
         type=str,
         choices=['dev', 'rm'],
         help=(
-            "Define uma persona especialista:\n"
-            "'dev' para Programador Sênior\n"
-            "'rm'  para Analista de Retail Media Sênior."
+            "Define a specialist persona:\n"
+            "'dev' for Senior Programmer\n"
+            "'rm'  for Senior Retail Media Analyst."
         )
     )
     parser.add_argument(
         '--model',
         type=str,
-        help='Nome do modelo OpenRouter a ser usado. Ex: nvidia/nemotron-3-nano-30b-a3b:free'
+        help='OpenRouter model name to use. Ex: nvidia/nemotron-3-nano-30b-a3b:free'
     )
     parser.add_argument(
         '-m', '--max-completion-tokens',
         type=int,
         default=16000,
-        help='Número máximo de tokens para a resposta do modelo. Padrão: 16000'
+        help='Maximum tokens for model response. Default: 16000'
     )
     parser.add_argument(
         '-u', '--unlimited',
         action='store_true',
-        help='Remove o limite de tokens da resposta (não envia max_tokens para a API)'
+        help='Remove response token limit (does not send max_tokens to API)'
     )
     parser.add_argument(
         '--set-default-model',
         type=str,
-        help='Define e persiste o modelo padrão (top-level "model") em ~/.prompt/config.json e encerra, se nenhum outro argumento for passado.'
+        help='Set and persist the default model (top-level "model") in ~/.ab/config.json and exit.'
     )
     parser.add_argument(
         '--only-output',
         action='store_true',
-        help="retorna apenas o resultado do modelo"
+        help="Return only the model result"
     )
     parser.add_argument(
         '--json',
         action='store_true',
-        help="formata o resulto json"
+        help="Format result as JSON"
     )
 
     path_options = parser.add_mutually_exclusive_group()
     path_options.add_argument(
         "--relative-paths",
         action="store_true",
-        help="Exibe caminhos relativos em vez de caminhos absolutos."
+        help="Display relative paths instead of absolute paths."
     )
     path_options.add_argument(
         "--filename-only",
         action="store_true",
-        help="Exibe apenas o nome do arquivo em vez do caminho completo."
+        help="Display only the filename instead of full path."
     )
-    
 
-    # Se nenhum argumento for passado, exibe a ajuda
+
+    # If no arguments passed, show help
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
         sys.exit(1)
 
     args = parser.parse_args()
 
-    # Se prompt for '-', lê do stdin
+    # If prompt is '-', read from stdin
     if args.prompt == '-':
         args.prompt = sys.stdin.read()
 
     global VERBOSE
     VERBOSE = not args.only_output
 
-    # Atualiza modelo default, se solicitado
+    # Update default model if requested
     if args.set_default_model:
         if persist_default_model(args.set_default_model):
-            pp(f"✅ Modelo default atualizado para: {args.set_default_model} em ~/.prompt/config.json")
+            pp(f"Default model updated to: {args.set_default_model} in ~/.ab/config.json")
         else:
-            pp("Erro ao atualizar o modelo default.")
-        # Se apenas setou o default e não forneceu prompt nem caminhos, encerra.
+            pp("Error updating default model.")
+        # If only set default and no prompt or paths provided, exit.
         if not args.prompt and len(args.paths) == 0:
             return
 
-    # Carrega configurações
+    # Load configurations
     config = load_config()
     settings = resolve_settings(args, config)
 
@@ -748,11 +738,11 @@ def main():
     elif args.filename_only:
         path_format_option = 'name_only'
 
-    # Carrega padrões .aiignore
+    # Load .aiignore patterns
     aiignore_files = find_aiignore_files(pathlib.Path.cwd())
     aiignore_spec = load_aiignore_spec(aiignore_files)
     if aiignore_files:
-        pp(f"Carregado .aiignore de: {', '.join(str(f) for f in aiignore_files)}")
+        pp(f"Loaded .aiignore from: {', '.join(str(f) for f in aiignore_files)}")
 
     all_files_content = []
     total_word_count = 0
@@ -763,25 +753,25 @@ def main():
 
     for path_arg in args.paths:
         if not path_arg.exists():
-            pp(f"Aviso: O caminho '{path_arg}' não existe. Pulando.")
+            pp(f"Warning: Path '{path_arg}' does not exist. Skipping.")
             continue
 
         base_path = path_arg.resolve() if path_arg.is_dir() else path_arg.parent.resolve()
 
         if path_arg.is_file():
-            # Verifica .aiignore
+            # Check .aiignore
             if should_ignore_path(path_arg.resolve(), aiignore_spec, base_path):
-                pp(f"Ignorado por .aiignore: {path_arg}")
+                pp(f"Ignored by .aiignore: {path_arg}")
                 files_skipped_count += 1
                 continue
-            # Verifica se é binário
+            # Check if binary
             if is_binary_file(path_arg):
-                pp(f"Ignorado (binário): {path_arg}")
+                pp(f"Ignored (binary): {path_arg}")
                 files_skipped_count += 1
                 continue
-            # Processa arquivo de texto
+            # Process text file
             content, word_count, estimated_tokens = process_file(path_arg, path_format_option, args.max_tokens_doc)
-            pp(f"Processando arquivo: {path_arg.resolve()} ({word_count} palavras, ~{estimated_tokens} tokens)")
+            pp(f"Processing file: {path_arg.resolve()} ({word_count} words, ~{estimated_tokens} tokens)")
             if content.startswith("// error_processing_file"):
                 files_error_count += 1
             else:
@@ -791,20 +781,20 @@ def main():
             all_files_content.append(content)
 
         elif path_arg.is_dir():
-            pp(f"Processando diretório: {path_arg.resolve()}")
+            pp(f"Processing directory: {path_arg.resolve()}")
             for child_path in path_arg.rglob('*'):
                 if child_path.is_file():
-                    # Verifica .aiignore
+                    # Check .aiignore
                     if should_ignore_path(child_path.resolve(), aiignore_spec, base_path):
                         files_skipped_count += 1
                         continue
-                    # Verifica se é binário
+                    # Check if binary
                     if is_binary_file(child_path):
                         files_skipped_count += 1
                         continue
-                    # Processa arquivo de texto
+                    # Process text file
                     content, word_count, estimated_tokens = process_file(child_path, path_format_option, args.max_tokens_doc)
-                    pp(f"  -> Processando: {child_path.relative_to(path_arg)} ({word_count} palavras, ~{estimated_tokens} tokens)")
+                    pp(f"  -> Processing: {child_path.relative_to(path_arg)} ({word_count} words, ~{estimated_tokens} tokens)")
                     if content.startswith("// error_processing_file"):
                         files_error_count += 1
                     else:
@@ -813,25 +803,25 @@ def main():
                         total_estimated_tokens += estimated_tokens
                     all_files_content.append(content)
         else:
-            pp(f"Aviso: O caminho '{path_arg}' não é um arquivo nem um diretório. Pulando.")
+            pp(f"Warning: Path '{path_arg}' is not a file or directory. Skipping.")
 
     final_text = "".join(all_files_content)
 
-    # Caso nenhum arquivo tenha sido processado
+    # If no files were processed
     if not final_text and not args.prompt:
-        pp("\nNenhum arquivo válido foi encontrado ou processado.")
+        pp("\nNo valid files were found or processed.")
         if files_skipped_count > 0:
-            pp(f"{files_skipped_count} arquivo(s) foram ignorados (binários ou .aiignore).")
+            pp(f"{files_skipped_count} file(s) were ignored (binary or .aiignore).")
         return
 
     original_total_tokens = len(final_text) // 4
     if args.max_tokens and original_total_tokens > args.max_tokens:
-        pp(f"\nAviso: O contexto final com ~{original_total_tokens} tokens excedeu o limite de {args.max_tokens}. Truncando...")
+        pp(f"\nWarning: Final context with ~{original_total_tokens} tokens exceeded limit of {args.max_tokens}. Truncating...")
         max_chars = args.max_tokens * 4
         final_text = final_text[:max_chars]
-        pp(f"Novo total de tokens estimados no contexto: ~{len(final_text) // 4}")
+        pp(f"New estimated token count in context: ~{len(final_text) // 4}")
 
-    # Realiza a chamada ao OpenRouter caso exista prompt
+    # Make OpenRouter call if prompt exists
     if args.prompt:
         model = settings["model"]
         timeout_s = settings["timeout_s"]
@@ -846,20 +836,19 @@ def main():
         )
 
         if result:
-            # print(json.dumps(result, indent=4))
             response_text = result['text']
-            
+
 
             if VERBOSE:
-                pp("\n--- INFORMAÇÕES DA REQUISIÇÃO ---")
-                pp(f"Provider Utilizado: {result['provider']}")
-                pp(f"Modelo Utilizado: {result['model']}")
-                pp(f"Arquivos Processados: {files_processed_count} ({total_word_count} palavras, ~{total_estimated_tokens} tokens) | Erros: {files_error_count} | Ignorados: {files_skipped_count}")
-                pp(f"Tokens Enviados (API): {result['prompt_tokens']}")
-                pp(f"Tokens Recebidos (API): {result['response_tokens']}")
+                pp("\n--- REQUEST INFORMATION ---")
+                pp(f"Provider Used: {result['provider']}")
+                pp(f"Model Used: {result['model']}")
+                pp(f"Files Processed: {files_processed_count} ({total_word_count} words, ~{total_estimated_tokens} tokens) | Errors: {files_error_count} | Ignored: {files_skipped_count}")
+                pp(f"Tokens Sent (API): {result['prompt_tokens']}")
+                pp(f"Tokens Received (API): {result['response_tokens']}")
                 pp("---------------------------------")
-                
-                pp("\n--- RESPOSTA DO MODELO ---\n")
+
+                pp("\n--- MODEL RESPONSE ---\n")
                 pp(response_text)
                 pp("\n--------------------------\n")
             else:
@@ -875,14 +864,14 @@ def main():
                         pass
 
                 print(text)
-                
+
             try:
                 pyperclip.copy(response_text)
-                pp("✅ Resposta copiada para a área de transferência!")
+                pp("Response copied to clipboard!")
             except pyperclip.PyperclipException as e:
-                pp(f"Erro: Não foi possível copiar para a área de transferência. {e}")
+                pp(f"Error: Could not copy to clipboard. {e}")
 
-            # Preparar informações dos arquivos processados
+            # Prepare processed files information
             files_info = {
                 'processed': files_processed_count,
                 'errors': files_error_count,
@@ -891,23 +880,23 @@ def main():
                 'tokens': total_estimated_tokens,
                 'file_list': [str(p) for p in args.paths]
             }
-            
+
             save_to_history(result['full_prompt'], response_text, result, files_info, args)
         return
 
-    # Se não houver prompt, mas houver conteúdo de arquivo, copie para o clipboard
+    # If no prompt but file content exists, copy to clipboard
     if final_text:
         try:
             pyperclip.copy(final_text)
-            pp(f"\nProcessado(s) {files_processed_count} arquivo(s) com sucesso ({total_word_count} palavras, ~{total_estimated_tokens} tokens no total).")
+            pp(f"\nProcessed {files_processed_count} file(s) successfully ({total_word_count} words, ~{total_estimated_tokens} tokens total).")
             if files_skipped_count > 0:
-                 pp(f"{files_skipped_count} arquivo(s) foram ignorados (binários ou .aiignore).")
+                 pp(f"{files_skipped_count} file(s) were ignored (binary or .aiignore).")
             if files_error_count > 0:
-                pp(f"Encontrados erros em {files_error_count} arquivo(s).")
-            pp("✅ O conteúdo combinado foi copiado para a sua área de transferência!")
+                pp(f"Found errors in {files_error_count} file(s).")
+            pp("Combined content was copied to your clipboard!")
         except pyperclip.PyperclipException as e:
-            pp(f"\nErro: Não foi possível copiar para a área de transferência. {e}")
-            pp("\nAqui está a saída combinada:\n")
+            pp(f"\nError: Could not copy to clipboard. {e}")
+            pp("\nHere is the combined output:\n")
             pp("--------------------------------------------------")
             pp(final_text)
             pp("--------------------------------------------------")

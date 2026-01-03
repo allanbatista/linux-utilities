@@ -16,11 +16,7 @@ import os
 import subprocess
 import sys
 
-# Add parent directory to path for imports
-script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, script_dir)
-
-from lib.ab_config import get_config, AB_CONFIG_FILE, DEFAULT_CONFIG
+from ab_cli.core.config import get_config, AB_CONFIG_FILE, DEFAULT_CONFIG
 
 
 def cmd_show(args):

@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname -- "$SCRIPT_PATH")"
+PROJECT_DIR="$(dirname -- "$SCRIPT_DIR")"
 
 show_help() {
     echo "ab git - Git utilities powered by LLM"
@@ -25,18 +26,30 @@ fi
 COMMAND="$1"
 shift
 
+# Python path setup
+VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
+export PYTHONPATH="$PROJECT_DIR/src"
+
+run_python() {
+    if [[ -x "$VENV_PYTHON" ]]; then
+        exec "$VENV_PYTHON" -m "$@"
+    else
+        exec /usr/bin/python3 -m "$@"
+    fi
+}
+
 case "$COMMAND" in
     help|-h|--help)
         show_help
         ;;
     auto-commit)
-        exec "$SCRIPT_DIR/auto_commit.py" "$@"
+        run_python ab_cli.commands.auto_commit "$@"
         ;;
     pr-description)
-        exec "$SCRIPT_DIR/pr_description.py" "$@"
+        run_python ab_cli.commands.pr_description "$@"
         ;;
     rewrite-history)
-        exec "$SCRIPT_DIR/rewrite_history.py" "$@"
+        run_python ab_cli.commands.rewrite_history "$@"
         ;;
     *)
         echo "Error: unknown git command '$COMMAND'"

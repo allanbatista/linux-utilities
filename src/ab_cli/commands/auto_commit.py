@@ -10,11 +10,7 @@ import subprocess
 import sys
 import tempfile
 
-# Add parent directory to path for imports
-script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, script_dir)
-
-from lib.ab_config import get_config, estimate_tokens, get_language
+from ab_cli.core.config import get_config, estimate_tokens, get_language
 
 # ANSI colors
 RED = '\033[0;31m'
@@ -121,6 +117,23 @@ def get_latest_commit() -> str:
     return result.stdout.strip()
 
 
+def find_prompt_command() -> str:
+    """Find the ab-prompt command."""
+    # Try to find it in the bin directory relative to this module
+    import pathlib
+    module_dir = pathlib.Path(__file__).parent.parent.parent.parent
+    prompt_cmd = module_dir / 'bin' / 'ab-prompt'
+    if prompt_cmd.exists():
+        return str(prompt_cmd)
+
+    # Fallback to PATH
+    import shutil
+    if shutil.which('ab-prompt'):
+        return 'ab-prompt'
+
+    raise FileNotFoundError("Could not find ab-prompt command")
+
+
 def generate_commit_message(diff: str, name_status: str, recent_commits: str,
                            lang: str, prompt_cmd: str) -> str:
     """Generate commit message using the prompt utility."""
@@ -204,9 +217,10 @@ Examples:
         sys.exit(1)
 
     # Find prompt command
-    prompt_cmd = os.path.join(script_dir, 'ab-prompt')
-    if not os.path.isfile(prompt_cmd):
-        log_error(f"Utility 'prompt' not found at {script_dir}")
+    try:
+        prompt_cmd = find_prompt_command()
+    except FileNotFoundError as e:
+        log_error(str(e))
         sys.exit(1)
 
     # Change to repo root

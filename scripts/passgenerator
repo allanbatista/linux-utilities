@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 
 usage() {
-    echo "Uso: $0 N [opções]"
-    echo "  N: tamanho da senha (obrigatório)"
-    echo "Opções:"
-    echo "  --no-letters        Não incluir letras (A-Z, a-z)"
-    echo "  --no-digits         Não incluir números (0-9)"
-    echo "  --no-punct          Não incluir pontuações (!@#...)"
-    echo "  --min-letters M     Quantidade mínima de letras"
-    echo "  --min-digits M      Quantidade mínima de números"
-    echo "  --min-punct M       Quantidade mínima de pontuações"
-    echo "  --allow-sequences   Permitir sequências (abc, 123, etc.)"
-    echo "  --allow-repeated    Permitir repetição do mesmo caractere (ex: aaa, 111)"
+    echo "Usage: $0 N [options]"
+    echo "  N: password length (required)"
+    echo "Options:"
+    echo "  --no-letters        Do not include letters (A-Z, a-z)"
+    echo "  --no-digits         Do not include numbers (0-9)"
+    echo "  --no-punct          Do not include punctuation (!@#...)"
+    echo "  --min-letters M     Minimum number of letters"
+    echo "  --min-digits M      Minimum number of numbers"
+    echo "  --min-punct M       Minimum number of punctuation marks"
+    echo "  --allow-sequences   Allow sequences (abc, 123, etc.)"
+    echo "  --allow-repeated    Allow same character repetition (ex: aaa, 111)"
     exit 1
 }
 
-# --- Parâmetros padrão ---
+# --- Default parameters ---
 LENGTH="$1"
 shift || true
 
@@ -35,7 +35,7 @@ MIN_PUNCT=0
 ALLOW_SEQUENCES=false
 ALLOW_REPEATED=false
 
-# --- Processa os parâmetros ---
+# --- Process parameters ---
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-letters) INCLUDE_LETTERS=false ;;
@@ -57,11 +57,11 @@ $INCLUDE_DIGITS && CHARSET+="$DIGITS"
 $INCLUDE_PUNCT && CHARSET+="$PUNCT"
 
 if [[ -z "$CHARSET" ]]; then
-    echo "Erro: Nenhum conjunto de caracteres selecionado."
+    echo "Error: No character set selected."
     exit 1
 fi
 
-# Função para verificar sequência de letras/números
+# Function to check letter/number sequences
 contains_sequence() {
     local pass="$1"
     if [[ "$pass" =~ (abc|bcd|cde|def|efg|fgh|ghi|hij|ijk|jkl|klm|lmn|mno|nop|opq|pqr|qrs|rst|stu|tuv|uvw|vwx|wxy|xyz|012|123|234|345|456|567|678|789) ]]; then
@@ -70,30 +70,30 @@ contains_sequence() {
     return 1
 }
 
-# Função para verificar repetição do mesmo caractere
+# Function to check same character repetition
 contains_repeated() {
     local pass="$1"
-    if [[ "$pass" =~ (.)\1\1 ]]; then  # Três repetições do mesmo caractere
+    if [[ "$pass" =~ (.)\1\1 ]]; then  # Three repetitions of same character
         return 0
     fi
     return 1
 }
 
-# Função para gerar senha
+# Function to generate password
 generate_password() {
     local pwd=""
     while true; do
         pwd=$(< /dev/urandom tr -dc "$CHARSET" | head -c "$LENGTH")
 
-        # Checa quantidades mínimas
+        # Check minimum quantities
         [[ $(grep -o "[A-Za-z]" <<< "$pwd" | wc -l) -lt "$MIN_LETTERS" ]] && continue
         [[ $(grep -o "[0-9]" <<< "$pwd" | wc -l) -lt "$MIN_DIGITS" ]] && continue
         [[ $(grep -o "[$PUNCT]" <<< "$pwd" | wc -l) -lt "$MIN_PUNCT" ]] && continue
 
-        # Bloqueia sequências (a menos que permitido)
+        # Block sequences (unless allowed)
         ! $ALLOW_SEQUENCES && contains_sequence "$pwd" && continue
 
-        # Bloqueia repetições do mesmo caractere (a menos que permitido)
+        # Block same character repetitions (unless allowed)
         ! $ALLOW_REPEATED && contains_repeated "$pwd" && continue
 
         echo "$pwd"
@@ -102,4 +102,3 @@ generate_password() {
 }
 
 generate_password
-

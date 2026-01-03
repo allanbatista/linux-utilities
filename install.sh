@@ -27,8 +27,8 @@ detect_install_mode() {
         local script_dir
         script_dir="$(dirname -- "$script_path")"
 
-        # If we're in a directory with the ab script, assume local install
-        if [[ -f "$script_dir/ab" && -f "$script_dir/requirements.txt" ]]; then
+        # If we're in a directory with the bin/ab script, assume local install
+        if [[ -f "$script_dir/bin/ab" && -f "$script_dir/requirements.txt" ]]; then
             echo "local"
             echo "$script_dir"
             return
@@ -163,7 +163,7 @@ if [[ -L "$INSTALL_PATH" || -f "$INSTALL_PATH" ]]; then
     fi
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         sudo rm -f "$INSTALL_PATH"
-        sudo ln -s "$INSTALL_DIR/ab" "$INSTALL_PATH"
+        sudo ln -s "$INSTALL_DIR/bin/ab" "$INSTALL_PATH"
         echo -e "  ${GREEN}Symlink updated${NC}"
     else
         echo -e "  Skipped symlink creation"
@@ -175,11 +175,11 @@ else
         read -p "  Create symlink at $INSTALL_PATH? [Y/n] " -r REPLY || REPLY=""
     fi
     if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-        sudo ln -s "$INSTALL_DIR/ab" "$INSTALL_PATH"
-        echo -e "  ${GREEN}Symlink created:${NC} $INSTALL_PATH -> $INSTALL_DIR/ab"
+        sudo ln -s "$INSTALL_DIR/bin/ab" "$INSTALL_PATH"
+        echo -e "  ${GREEN}Symlink created:${NC} $INSTALL_PATH -> $INSTALL_DIR/bin/ab"
     else
         echo -e "  Skipped. You can add to PATH manually:"
-        echo -e "    export PATH=\"$INSTALL_DIR:\$PATH\""
+        echo -e "    export PATH=\"$INSTALL_DIR/bin:\$PATH\""
     fi
 fi
 
@@ -200,7 +200,7 @@ else
     fi
     if [[ ! $REPLY =~ ^[Nn]$ ]]; then
         mkdir -p "$COMPLETION_DIR"
-        ln -s "$INSTALL_DIR/ab.bash-completion" "$COMPLETION_FILE"
+        ln -s "$INSTALL_DIR/completions/ab.bash-completion" "$COMPLETION_FILE"
         echo -e "  ${GREEN}Bash completion enabled${NC}"
         echo -e "  ${YELLOW}Note:${NC} Restart your shell or run: source ~/.bashrc"
     else
