@@ -113,6 +113,7 @@ ab util <command>       # General utilities
 # Root commands:
 ab prompt               # Send context to LLM (OpenRouter)
 ab config               # Manage configuration
+ab models               # List available LLM models
 ab help                 # Show help
 ```
 
@@ -138,6 +139,60 @@ ab help                 # Show help
 ---
 
 ## Commands
+
+### ab models
+
+List and explore available LLM models from OpenRouter API.
+
+```bash
+ab models [COMMAND] [OPTIONS]
+```
+
+#### Commands
+
+| Command | Description |
+|---------|-------------|
+| `list` | List available models (default) |
+| `info <model-id>` | Show detailed model information |
+
+#### List Options
+
+| Option | Description |
+|--------|-------------|
+| `--free` | Show only free models |
+| `--search TEXT` | Search by name/description |
+| `--context-min N` | Minimum context length |
+| `--modality TYPE` | Filter by modality (text, image, audio, video) |
+| `--sort FIELD` | Sort by: name, context, price |
+| `--limit N` | Limit results (default: 50) |
+| `--json` | Output as JSON |
+
+#### Examples
+
+```bash
+# List all models
+ab models
+
+# Show only free models
+ab models list --free
+
+# Search for Claude models
+ab models list --search claude
+
+# Models with 128k+ context
+ab models list --context-min 128000
+
+# Vision models sorted by price
+ab models list --modality image --sort price
+
+# Get details for specific model
+ab models info openai/gpt-4o
+
+# Output as JSON
+ab models list --json
+```
+
+---
 
 ### ab prompt
 
