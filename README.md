@@ -116,6 +116,25 @@ ab config               # Manage configuration
 ab help                 # Show help
 ```
 
+### Git Commands (`ab git`)
+
+| Command | Description |
+|---------|-------------|
+| `auto-commit` | Generate commit messages via LLM |
+| `branch-name` | Generate branch name from task description |
+| `changelog` | Generate changelog from commits |
+| `pr-description` | Generate PR title/description via LLM |
+| `resolve-conflict` | Resolve merge conflicts via LLM |
+| `rewrite-history` | Rewrite commit messages via LLM |
+
+### Utility Commands (`ab util`)
+
+| Command | Description |
+|---------|-------------|
+| `explain` | Explain code, errors, or concepts via LLM |
+| `gen-script` | Generate scripts from natural language |
+| `passgenerator` | Secure password generator |
+
 ---
 
 ## Commands
@@ -218,6 +237,8 @@ The tool searches for `.aiignore` files from the current directory up to the git
 
 Generate commit messages automatically by analyzing staged changes.
 
+**Protected branch detection**: When on `master` or `main`, auto-commit will suggest creating a feature branch before committing.
+
 ```bash
 ab git auto-commit [OPTIONS]
 ```
@@ -234,6 +255,71 @@ ab git auto-commit
 
 # Stage all and commit without confirmation
 ab git auto-commit -a -y
+```
+
+---
+
+### ab git branch-name
+
+Generate branch names from task descriptions using LLM.
+
+```bash
+ab git branch-name [OPTIONS] "description"
+```
+
+| Option | Description |
+|--------|-------------|
+| `-c` | Create and checkout the branch |
+| `-p PREFIX` | Force a specific prefix (feature, fix, chore, etc.) |
+| `-y` | Skip confirmation when creating |
+| `-l LANG` | Output language (default: `en`) |
+
+```bash
+# Suggest branch name
+ab git branch-name "fix login bug"
+# Output: fix/login-bug
+
+# Create and checkout
+ab git branch-name -c "add user authentication"
+
+# Force prefix
+ab git branch-name --prefix fix "button alignment"
+# Output: fix/button-alignment
+
+# With JIRA ticket
+ab git branch-name "JIRA-123: implement payment gateway"
+# Output: feature/JIRA-123-implement-payment
+```
+
+---
+
+### ab git changelog
+
+Generate changelog/release notes from commits using LLM.
+
+```bash
+ab git changelog [OPTIONS] [RANGE]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-f FORMAT` | Output format: `markdown`, `plain`, `json` |
+| `-c` | Group commits by type (feat/fix/chore) |
+| `-o FILE` | Write output to file |
+| `-l LANG` | Output language (default: `en`) |
+
+```bash
+# Since last tag to HEAD
+ab git changelog
+
+# Between two tags
+ab git changelog v1.0.0..v2.0.0
+
+# Last 10 commits in JSON
+ab git changelog HEAD~10..HEAD -f json
+
+# Write to file with categories
+ab git changelog -c -o CHANGELOG.md
 ```
 
 ---
@@ -317,6 +403,129 @@ ab git rewrite-history --force-all
 
 # Smart mode (LLM decides)
 ab git rewrite-history --smart
+```
+
+---
+
+### ab git resolve-conflict
+
+Analyze and resolve merge conflicts using LLM.
+
+```bash
+ab git resolve-conflict [OPTIONS] [FILE]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-y` | Auto-apply resolutions without confirmation |
+| `--dry-run` | Preview resolutions without applying |
+| `-l LANG` | Output language (default: `en`) |
+
+```bash
+# Interactive mode for all conflicted files
+ab git resolve-conflict
+
+# Resolve specific file
+ab git resolve-conflict src/app.py
+
+# Preview suggestions only
+ab git resolve-conflict --dry-run
+
+# Auto-apply all resolutions
+ab git resolve-conflict -y
+```
+
+**Features:**
+- Detects conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`)
+- Extracts both versions with surrounding context
+- Suggests intelligent merged resolution
+- Option to edit manually before applying
+
+---
+
+### ab util explain
+
+Explain code, errors, or technical concepts using LLM with automatic context gathering.
+
+```bash
+ab util explain [OPTIONS] [INPUT]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-c CONCEPT` | Explain a technical concept |
+| `--history N` | Include last N lines from bash history |
+| `--with-files` | Include directory listing and referenced files |
+| `--context-dir PATH` | Directory for context gathering |
+| `-v` | Verbose/detailed explanation |
+| `-l LANG` | Output language (default: `en`) |
+
+```bash
+# Explain entire file
+ab util explain src/app.py
+
+# Explain specific line
+ab util explain src/app.py:42
+
+# Explain line range
+ab util explain src/app.py:10-50
+
+# Explain error message
+ab util explain "error: ECONNREFUSED"
+
+# Explain concept
+ab util explain --concept "dependency injection"
+
+# From stdin
+echo "stack trace" | ab util explain -
+
+# With bash history context
+ab util explain --history 20 "command failed"
+
+# With directory context
+ab util explain --with-files "file not found"
+```
+
+---
+
+### ab util gen-script
+
+Generate bash/python scripts from natural language descriptions.
+
+**Default behavior**: Generates minimal one-liner commands. Use `--full` for complete scripts with error handling.
+
+```bash
+ab util gen-script [OPTIONS] "description"
+```
+
+| Option | Description |
+|--------|-------------|
+| `--lang LANG` | Script language: `bash`, `python`, `sh`, `perl`, `ruby`, `node` |
+| `--type TYPE` | Script type: `script`, `cron`, `oneshot` (default: oneshot) |
+| `--full` | Generate complete script with error handling |
+| `-o FILE` | Output file path (auto-enables full mode) |
+| `--run` | Execute the generated script immediately |
+| `-l LANG` | Output language for comments |
+
+```bash
+# One-liner output (default)
+ab util gen-script "list all files larger than 100MB"
+# Output: find . -size +100M
+
+# Full script with error handling
+ab util gen-script --full "backup database"
+
+# Generate Python one-liner
+ab util gen-script --lang python "parse CSV and sum column 3"
+
+# Save to file (auto-full mode)
+ab util gen-script -o backup.sh "compress and upload to S3"
+
+# Execute immediately
+ab util gen-script --run "show disk usage summary"
+
+# Cron-suitable script
+ab util gen-script --type cron "backup database daily"
 ```
 
 ---
