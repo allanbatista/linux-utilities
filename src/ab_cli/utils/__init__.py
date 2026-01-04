@@ -23,6 +23,7 @@ from ab_cli.utils.exceptions import (
 from ab_cli.utils.git_helpers import (
     run_git,
     is_git_repo,
+    require_git_repo,
     get_repo_root,
     get_current_branch,
     is_protected_branch,
@@ -61,6 +62,10 @@ from ab_cli.utils.llm_helpers import (
     call_llm_with_model_info,
     get_llm_text,
 )
+from ab_cli.utils.error_handling import (
+    cli_error_handler,
+    handle_cli_errors,
+)
 
 __all__ = [
     # Logging functions
@@ -85,6 +90,7 @@ __all__ = [
     # Git helpers
     'run_git',
     'is_git_repo',
+    'require_git_repo',
     'get_repo_root',
     'get_current_branch',
     'is_protected_branch',
@@ -121,4 +127,7 @@ __all__ = [
     'call_llm',
     'call_llm_with_model_info',
     'get_llm_text',
+    # Error handling
+    'cli_error_handler',
+    'handle_cli_errors',
 ]

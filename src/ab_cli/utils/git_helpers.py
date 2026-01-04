@@ -5,6 +5,8 @@ Provides common git operations used across multiple commands.
 import subprocess
 from typing import List, Optional
 
+from ab_cli.utils.exceptions import GitError
+
 
 def run_git(*args, capture: bool = True, check: bool = True) -> subprocess.CompletedProcess:
     """Run a git command.
@@ -33,6 +35,16 @@ def is_git_repo() -> bool:
         return True
     except subprocess.CalledProcessError:
         return False
+
+
+def require_git_repo() -> None:
+    """Require the current directory to be inside a git repository.
+
+    Raises:
+        GitError: If not inside a git repository.
+    """
+    if not is_git_repo():
+        raise GitError("Not inside a git repository")
 
 
 def get_repo_root() -> str:
