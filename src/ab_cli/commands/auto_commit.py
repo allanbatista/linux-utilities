@@ -8,9 +8,9 @@ import argparse
 import os
 import subprocess
 import sys
-import tempfile
 
 from ab_cli.core.config import get_config, estimate_tokens, get_language
+from ab_cli.commands.prompt import send_to_openrouter
 
 # ANSI colors
 RED = '\033[0;31m'
@@ -84,8 +84,9 @@ def create_branch(branch_name: str) -> bool:
         return False
 
 
-def suggest_branch_name(diff: str, name_status: str, prompt_cmd: str, lang: str) -> str:
+def suggest_branch_name(diff: str, name_status: str, lang: str) -> str:
     """Generate a suggested branch name based on changes."""
+    import re
     config = get_config()
 
     prompt_text = f"""Analyze these git changes and suggest a branch name.
@@ -113,32 +114,49 @@ Return ONLY the branch name:"""
 
     estimated_tokens = estimate_tokens(prompt_text)
     selected_model = config.select_model(estimated_tokens)
-
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(prompt_text)
-        prompt_file = f.name
+    timeout_s = config.get_with_default('global.timeout_seconds')
+    api_key_env = config.get_with_default('global.api_key_env')
+    api_base = config.get_with_default('global.api_base')
 
     try:
-        result = subprocess.run(
-            [prompt_cmd, '--model', selected_model, '--lang', lang,
-             '--max-completion-tokens', '100', '--only-output', '--prompt', '-'],
-            stdin=open(prompt_file, 'r'),
-            capture_output=True,
-            text=True,
-            check=False
+        result = send_to_openrouter(
+            prompt=prompt_text,
+            context="",
+            lang=lang,
+            specialist=None,
+            model_name=selected_model,
+            timeout_s=timeout_s,
+            max_completion_tokens=-1,  # No limit
+            api_key_env=api_key_env,
+            api_base=api_base
         )
-        branch_name = result.stdout.strip()
+
+        if not result:
+            log_error("API call failed for branch suggestion")
+            return ""
+
+        branch_name = result.get('text', '').strip()
+
+        if not branch_name:
+            log_error("LLM returned empty response for branch name")
+            return ""
+
         # Clean up
-        import re
         branch_name = branch_name.strip('"\'`')
         branch_name = branch_name.split('\n')[0].strip()
         branch_name = re.sub(r'\s+', '-', branch_name)
         branch_name = re.sub(r'[^a-zA-Z0-9/_-]', '', branch_name)
         if len(branch_name) > 50:
             branch_name = branch_name[:50].rstrip('-')
+
+        if not branch_name:
+            log_error("Branch name became empty after cleanup")
+            return ""
+
         return branch_name
-    finally:
-        os.unlink(prompt_file)
+    except Exception as e:
+        log_error(f"Exception suggesting branch name: {e}")
+        return ""
 
 
 def get_staged_files() -> str:
@@ -196,26 +214,9 @@ def get_latest_commit() -> str:
     return result.stdout.strip()
 
 
-def find_prompt_command() -> str:
-    """Find the ab-prompt command."""
-    # Try to find it in the bin directory relative to this module
-    import pathlib
-    module_dir = pathlib.Path(__file__).parent.parent.parent.parent
-    prompt_cmd = module_dir / 'bin' / 'ab-prompt'
-    if prompt_cmd.exists():
-        return str(prompt_cmd)
-
-    # Fallback to PATH
-    import shutil
-    if shutil.which('ab-prompt'):
-        return 'ab-prompt'
-
-    raise FileNotFoundError("Could not find ab-prompt command")
-
-
 def generate_commit_message(diff: str, name_status: str, recent_commits: str,
-                           lang: str, prompt_cmd: str) -> str:
-    """Generate commit message using the prompt utility."""
+                           lang: str) -> str:
+    """Generate commit message using the LLM."""
     config = get_config()
 
     # Build the prompt
@@ -245,38 +246,40 @@ Respond ONLY with the commit message:
     # Estimate tokens and select model
     estimated_tokens = estimate_tokens(prompt_text)
     selected_model = config.select_model(estimated_tokens)
+    timeout_s = config.get_with_default('global.timeout_seconds')
+    api_key_env = config.get_with_default('global.api_key_env')
+    api_base = config.get_with_default('global.api_base')
 
     log_info(f"Estimated tokens: ~{estimated_tokens} | Model: {selected_model} | Lang: {lang}")
     print()
 
-    # Write prompt to temp file and use stdin
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(prompt_text)
-        prompt_file = f.name
+    result = send_to_openrouter(
+        prompt=prompt_text,
+        context="",
+        lang=lang,
+        specialist=None,
+        model_name=selected_model,
+        timeout_s=timeout_s,
+        max_completion_tokens=-1,
+        api_key_env=api_key_env,
+        api_base=api_base
+    )
 
-    try:
-        result = subprocess.run(
-            [prompt_cmd, '--model', selected_model, '--lang', lang,
-             '--max-completion-tokens', '-1', '--only-output', '--prompt', '-'],
-            stdin=open(prompt_file, 'r'),
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        return result.stdout.strip()
-    finally:
-        os.unlink(prompt_file)
+    if not result:
+        raise RuntimeError("API call failed for commit message generation")
+
+    return result.get('text', '').strip()
 
 
 def handle_protected_branch(current_branch: str, diff: str, name_status: str,
-                            prompt_cmd: str, lang: str) -> bool:
+                            lang: str) -> bool:
     """Handle protected branch workflow. Returns True if should continue, False to abort."""
     log_warning(f"You are on '{current_branch}' branch.")
     print()
 
     # Try to suggest a branch name
     log_info("Suggesting branch name...")
-    suggested_branch = suggest_branch_name(diff, name_status, prompt_cmd, lang)
+    suggested_branch = suggest_branch_name(diff, name_status, lang)
 
     if suggested_branch:
         print(f"\n{GREEN}Suggested branch:{NC} {YELLOW}{suggested_branch}{NC}\n")
@@ -359,13 +362,6 @@ Examples:
         log_error("Not inside a git repository")
         sys.exit(1)
 
-    # Find prompt command
-    try:
-        prompt_cmd = find_prompt_command()
-    except FileNotFoundError as e:
-        log_error(str(e))
-        sys.exit(1)
-
     # Change to repo root
     os.chdir(get_repo_root())
 
@@ -437,19 +433,17 @@ Examples:
 
     # Handle protected branch (after staging so we have the diff for suggestions)
     if on_protected_branch:
-        handle_protected_branch(current_branch, diff, name_status, prompt_cmd, args.lang)
+        handle_protected_branch(current_branch, diff, name_status, args.lang)
 
     # Generate commit message
     log_info("Generating commit message...")
 
     try:
         commit_msg = generate_commit_message(
-            diff, name_status, recent_commits, args.lang, prompt_cmd
+            diff, name_status, recent_commits, args.lang
         )
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         log_error(f"Failed to generate commit message: {e}")
-        if e.stderr:
-            print(e.stderr, file=sys.stderr)
         sys.exit(1)
 
     if not commit_msg:

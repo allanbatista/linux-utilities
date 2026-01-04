@@ -1,50 +1,7 @@
 """Unit tests for utility functions across ab_cli modules."""
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
-
-class TestAutoCommitUtils:
-    """Tests for utility functions in auto_commit module."""
-
-    def test_find_prompt_command_in_bin(self, tmp_path, monkeypatch):
-        """find_prompt_command finds ab-prompt in bin directory."""
-        from ab_cli.commands import auto_commit
-
-        # Create mock bin structure
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        prompt_cmd = bin_dir / "ab-prompt"
-        prompt_cmd.touch()
-
-        # Patch __file__ to point to our tmp structure
-        fake_module_path = tmp_path / "src" / "ab_cli" / "commands" / "auto_commit.py"
-        fake_module_path.parent.mkdir(parents=True, exist_ok=True)
-        fake_module_path.touch()
-
-        with patch.object(auto_commit, "__file__", str(fake_module_path)):
-            result = auto_commit.find_prompt_command()
-            assert result == str(prompt_cmd)
-
-    def test_find_prompt_command_in_path(self, monkeypatch):
-        """find_prompt_command falls back to PATH."""
-        from ab_cli.commands import auto_commit
-
-        # Mock pathlib to return non-existent path
-        with patch.object(Path, "exists", return_value=False):
-            with patch("shutil.which", return_value="/usr/local/bin/ab-prompt"):
-                result = auto_commit.find_prompt_command()
-                assert result == "ab-prompt"
-
-    def test_find_prompt_command_not_found(self, monkeypatch):
-        """find_prompt_command raises when not found."""
-        from ab_cli.commands import auto_commit
-
-        with patch.object(Path, "exists", return_value=False):
-            with patch("shutil.which", return_value=None):
-                with pytest.raises(FileNotFoundError):
-                    auto_commit.find_prompt_command()
 
 
 class TestAutoCommitGitHelpers:

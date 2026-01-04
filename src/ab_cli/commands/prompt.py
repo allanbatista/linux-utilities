@@ -142,7 +142,18 @@ def send_to_openrouter(prompt: str, context: str, lang: str, specialist: Optiona
         response.raise_for_status()
         data = response.json()
 
-        text_response = data['choices'][0]['message']['content']
+        message = data['choices'][0]['message']
+        text_response = message.get('content') or ''
+
+        # Handle reasoning models (gpt-5, o1, o3, etc.) that put response in reasoning field
+        if not text_response and 'reasoning' in message:
+            # For simple tasks, try to extract the final answer from reasoning
+            reasoning = message.get('reasoning', '')
+            # If the model ran out of tokens, reasoning might contain a partial answer
+            if reasoning:
+                pp(f"Note: Using reasoning field (model: {model_name}, content was empty)")
+                text_response = reasoning
+
         usage = data.get("usage", {})
         prompt_tokens = usage.get("prompt_tokens", "N/A")
         response_tokens = usage.get("completion_tokens", "N/A")
@@ -885,6 +896,9 @@ def main():
             }
 
             save_to_history(result['full_prompt'], response_text, result, files_info, args)
+        else:
+            # API call failed - exit with error code
+            sys.exit(1)
         return
 
     # If no prompt but file content exists, copy to clipboard

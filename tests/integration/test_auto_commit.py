@@ -225,23 +225,25 @@ class TestMain:
         assert "No changes to commit" in captured.out
 
     def test_main_prompt_not_found_exits_1(self, mock_git_repo, monkeypatch, capsys):
-        """Exits with error if ab-prompt not found."""
+        """Exits with error if API call fails."""
         monkeypatch.chdir(mock_git_repo)
 
         # Create changes
         (mock_git_repo / "test.txt").write_text("content")
         subprocess.run(["git", "add", "."], cwd=mock_git_repo, check=True)
 
-        monkeypatch.setattr(sys, "argv", ["auto-commit"])
+        monkeypatch.setattr(sys, "argv", ["auto-commit", "-y"])
 
-        # Mock find_prompt_command to raise FileNotFoundError
-        with patch("ab_cli.commands.auto_commit.find_prompt_command") as mock_find:
-            mock_find.side_effect = FileNotFoundError("Could not find ab-prompt")
+        # Mock send_to_openrouter to return None (API failure)
+        # Also mock is_protected_branch to avoid input() prompt
+        with patch("ab_cli.commands.auto_commit.send_to_openrouter") as mock_send:
+            with patch("ab_cli.commands.auto_commit.is_protected_branch", return_value=False):
+                mock_send.return_value = None
 
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
 
-            assert exc_info.value.code == 1
+                assert exc_info.value.code == 1
 
     def test_main_auto_add_flag(self, mock_git_repo, monkeypatch, mock_input):
         """'-a' flag stages all files."""
@@ -253,9 +255,9 @@ class TestMain:
         # Verify file is not staged initially
         assert "unstaged.txt" not in get_staged_files()
 
-        monkeypatch.setattr(sys, "argv", ["auto-commit", "-a"])
+        monkeypatch.setattr(sys, "argv", ["auto-commit", "-a", "-y"])
 
-        # Mock find_prompt_command to raise after staging happens
+        # Mock send_to_openrouter to fail after staging happens
         call_count = [0]
         original_stage = stage_all_files
 
@@ -263,16 +265,17 @@ class TestMain:
             original_stage()
             call_count[0] += 1
 
+        # Also mock is_protected_branch to avoid input() prompt
         with patch("ab_cli.commands.auto_commit.stage_all_files", side_effect=mock_stage):
-            with patch("ab_cli.commands.auto_commit.find_prompt_command") as mock_find:
-                mock_find.side_effect = FileNotFoundError("abort test")
+            with patch("ab_cli.commands.auto_commit.send_to_openrouter") as mock_send:
+                with patch("ab_cli.commands.auto_commit.is_protected_branch", return_value=False):
+                    mock_send.return_value = None  # Fail after staging
 
-                with pytest.raises(SystemExit):
-                    main()
+                    with pytest.raises(SystemExit):
+                        main()
 
         # Verify staging was called (the flag was honored)
-        # Even though it fails later, we verified the -a flag triggers staging
-        assert call_count[0] >= 0  # Test passes if we got here without other errors
+        assert call_count[0] >= 1
 
     def test_main_user_cancels(self, mock_git_repo, monkeypatch, capsys):
         """Handles user cancellation during staging prompt."""
@@ -297,13 +300,15 @@ class TestMain:
         (mock_git_repo / "test.txt").write_text("content")
         subprocess.run(["git", "add", "."], cwd=mock_git_repo, check=True)
 
-        monkeypatch.setattr(sys, "argv", ["auto-commit", "-l", "pt-br"])
+        monkeypatch.setattr(sys, "argv", ["auto-commit", "-l", "pt-br", "-y"])
 
-        with patch("ab_cli.commands.auto_commit.find_prompt_command") as mock_find:
-            mock_find.side_effect = FileNotFoundError("abort")
+        # Also mock is_protected_branch to avoid input() prompt
+        with patch("ab_cli.commands.auto_commit.send_to_openrouter") as mock_send:
+            with patch("ab_cli.commands.auto_commit.is_protected_branch", return_value=False):
+                mock_send.return_value = None  # Fail to abort
 
-            with pytest.raises(SystemExit):
-                main()
+                with pytest.raises(SystemExit):
+                    main()
 
         captured = capsys.readouterr()
         # Language should be in info output
