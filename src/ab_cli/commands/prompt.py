@@ -20,15 +20,17 @@ Example `~/.ab/config.json`:
 Flag `--set-default-model <model>` to **persist** the default model.
 """
 import argparse
+import datetime
+import json
 import os
 import pathlib
-import json
-import requests
-import pyperclip
-import datetime
-import sys
+import re
 import subprocess
-from typing import Optional, Tuple, Dict, Any, List
+import sys
+from typing import Any, Dict, List, Optional, Tuple
+
+import pyperclip
+import requests
 
 from binaryornot.check import is_binary
 import pathspec
@@ -192,15 +194,63 @@ def send_to_openrouter(prompt: str, context: str, lang: str, specialist: Optiona
 # History and Persistence
 # =========================
 
+
+def sanitize_sensitive_data(text: str) -> str:
+    """
+    Sanitize sensitive data from text before saving to history.
+
+    Patterns sanitized:
+    - API keys (various formats)
+    - Passwords and secrets
+    - Tokens and credentials
+    """
+    if not text:
+        return text
+
+    # Patterns to sanitize (key=value format)
+    patterns = [
+        # API keys
+        (r'(api[_-]?key\s*[=:]\s*)["\']?[\w-]{20,}["\']?', r'\1[REDACTED]'),
+        (r'(OPENROUTER_API_KEY\s*[=:]\s*)["\']?[\w-]+["\']?', r'\1[REDACTED]'),
+        (r'(sk-[a-zA-Z0-9]{20,})', '[REDACTED_API_KEY]'),
+        # Passwords
+        (r'(password\s*[=:]\s*)["\']?[^\s"\']+["\']?', r'\1[REDACTED]', re.IGNORECASE),
+        (r'(passwd\s*[=:]\s*)["\']?[^\s"\']+["\']?', r'\1[REDACTED]', re.IGNORECASE),
+        (r'(pwd\s*[=:]\s*)["\']?[^\s"\']+["\']?', r'\1[REDACTED]', re.IGNORECASE),
+        # Tokens and secrets
+        (r'(secret\s*[=:]\s*)["\']?[\w-]+["\']?', r'\1[REDACTED]', re.IGNORECASE),
+        (r'(token\s*[=:]\s*)["\']?[\w-]{20,}["\']?', r'\1[REDACTED]', re.IGNORECASE),
+        (r'(auth\s*[=:]\s*)["\']?[\w-]+["\']?', r'\1[REDACTED]', re.IGNORECASE),
+        # Bearer tokens
+        (r'(Bearer\s+)[a-zA-Z0-9._-]{20,}', r'\1[REDACTED]'),
+        # Basic auth
+        (r'(Basic\s+)[a-zA-Z0-9+/=]{20,}', r'\1[REDACTED]'),
+    ]
+
+    result = text
+    for pattern_tuple in patterns:
+        if len(pattern_tuple) == 3:
+            pattern, replacement, flags = pattern_tuple
+            result = re.sub(pattern, replacement, result, flags=flags)
+        else:
+            pattern, replacement = pattern_tuple
+            result = re.sub(pattern, replacement, result)
+
+    return result
+
+
 def save_to_history(full_prompt: str, response_text: str, result: Dict[str, Any],
                      files_info: Dict[str, Any], args: argparse.Namespace) -> None:
     """
     Save full interaction history with LLM to ~/.ab/history/
 
+    Respects config history.enabled setting.
+    Sanitizes sensitive data before saving.
+
     Information saved:
     - Request timestamp
     - Provider and model used
-    - Full prompt and response
+    - Full prompt and response (sanitized)
     - Token metrics (prompt, response, total)
     - Processed files information
     - Configuration used (specialist, language, etc)
@@ -208,6 +258,15 @@ def save_to_history(full_prompt: str, response_text: str, result: Dict[str, Any]
     """
     try:
         import hashlib
+
+        # Check if history is enabled
+        config = get_config()
+        if not config.get_with_default('history.enabled'):
+            return
+
+        # Sanitize sensitive data
+        sanitized_prompt = sanitize_sensitive_data(full_prompt)
+        sanitized_response = sanitize_sensitive_data(response_text)
 
         # History directory
         history_dir = pathlib.Path.home() / ".ab" / "history"
@@ -269,21 +328,21 @@ def save_to_history(full_prompt: str, response_text: str, result: Dict[str, Any]
             },
             "content": {
                 "prompt": {
-                    "full": full_prompt,
-                    "length_chars": len(full_prompt),
-                    "length_words": len(full_prompt.split())
+                    "full": sanitized_prompt,
+                    "length_chars": len(sanitized_prompt),
+                    "length_words": len(sanitized_prompt.split())
                 },
                 "response": {
-                    "full": response_text,
-                    "length_chars": len(response_text),
-                    "length_words": len(response_text.split()),
-                    "preview": response_text[:500] + "..." if len(response_text) > 500 else response_text
+                    "full": sanitized_response,
+                    "length_chars": len(sanitized_response),
+                    "length_words": len(sanitized_response.split()),
+                    "preview": sanitized_response[:500] + "..." if len(sanitized_response) > 500 else sanitized_response
                 }
             },
             "statistics": {
-                "prompt_to_response_ratio": round(len(response_text) / len(full_prompt), 2) if full_prompt else 0,
-                "avg_response_word_length": round(len(response_text) / max(len(response_text.split()), 1), 2),
-                "response_lines": response_text.count('\n') + 1
+                "prompt_to_response_ratio": round(len(sanitized_response) / len(sanitized_prompt), 2) if sanitized_prompt else 0,
+                "avg_response_word_length": round(len(sanitized_response) / max(len(sanitized_response.split()), 1), 2),
+                "response_lines": sanitized_response.count('\n') + 1
             }
         }
 

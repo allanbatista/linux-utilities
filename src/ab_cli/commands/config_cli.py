@@ -135,6 +135,49 @@ def cmd_list_keys(args):
         print(key)
 
 
+def cmd_clear_history(args):
+    """Clear LLM interaction history."""
+    from ab_cli.core.config import AB_HISTORY_DIR
+
+    if not AB_HISTORY_DIR.exists():
+        print("No history directory found.")
+        return
+
+    # Count files
+    history_files = list(AB_HISTORY_DIR.glob("history_*.json"))
+    index_file = AB_HISTORY_DIR / "index.json"
+
+    total_files = len(history_files) + (1 if index_file.exists() else 0)
+
+    if total_files == 0:
+        print("No history files found.")
+        return
+
+    if not args.yes:
+        confirm = input(f"Delete {total_files} history files? (y/N) ").strip().lower()
+        if confirm != 'y':
+            print("Cancelled.")
+            return
+
+    # Delete files
+    deleted = 0
+    for f in history_files:
+        try:
+            f.unlink()
+            deleted += 1
+        except OSError:
+            pass
+
+    if index_file.exists():
+        try:
+            index_file.unlink()
+            deleted += 1
+        except OSError:
+            pass
+
+    print(f"Deleted {deleted} history files.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Manage ab CLI configuration',
@@ -180,6 +223,12 @@ Keys use dot notation: global.language, models.small, etc.
     # list-keys
     subparsers.add_parser('list-keys', help='List all available config keys')
 
+    # clear-history
+    clear_history_parser = subparsers.add_parser(
+        'clear-history', help='Clear LLM interaction history')
+    clear_history_parser.add_argument(
+        '-y', '--yes', action='store_true', help='Skip confirmation prompt')
+
     args = parser.parse_args()
 
     if not args.command:
@@ -194,6 +243,7 @@ Keys use dot notation: global.language, models.small, etc.
         'path': cmd_path,
         'edit': cmd_edit,
         'list-keys': cmd_list_keys,
+        'clear-history': cmd_clear_history,
     }
 
     commands[args.command](args)
