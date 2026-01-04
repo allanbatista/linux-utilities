@@ -62,6 +62,85 @@ def get_repo_root() -> str:
     return result.stdout.strip()
 
 
+def get_current_branch() -> str:
+    """Get the current branch name."""
+    result = run_git('rev-parse', '--abbrev-ref', 'HEAD')
+    return result.stdout.strip()
+
+
+def is_protected_branch(branch: str) -> bool:
+    """Check if the branch is a protected branch (master/main)."""
+    protected = ['master', 'main', 'develop', 'development']
+    return branch.lower() in protected
+
+
+def create_branch(branch_name: str) -> bool:
+    """Create and checkout a new branch."""
+    try:
+        run_git('checkout', '-b', branch_name)
+        return True
+    except subprocess.CalledProcessError as e:
+        log_error(f"Failed to create branch: {e}")
+        return False
+
+
+def suggest_branch_name(diff: str, name_status: str, prompt_cmd: str, lang: str) -> str:
+    """Generate a suggested branch name based on changes."""
+    config = get_config()
+
+    prompt_text = f"""Analyze these git changes and suggest a branch name.
+
+RULES:
+1. Return ONLY the branch name, nothing else
+2. Use lowercase kebab-case (words-separated-by-dashes)
+3. Max 50 characters total
+4. Choose appropriate prefix based on change type:
+   - feature/ for new features
+   - fix/ for bug fixes
+   - chore/ for maintenance tasks
+   - refactor/ for code refactoring
+   - docs/ for documentation
+   - test/ for test-related changes
+5. Be concise but descriptive
+
+FILES CHANGED:
+{name_status}
+
+DIFF PREVIEW (first 1000 chars):
+{diff[:1000]}
+
+Return ONLY the branch name:"""
+
+    estimated_tokens = estimate_tokens(prompt_text)
+    selected_model = config.select_model(estimated_tokens)
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        f.write(prompt_text)
+        prompt_file = f.name
+
+    try:
+        result = subprocess.run(
+            [prompt_cmd, '--model', selected_model, '--lang', lang,
+             '--max-completion-tokens', '100', '--only-output', '--prompt', '-'],
+            stdin=open(prompt_file, 'r'),
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        branch_name = result.stdout.strip()
+        # Clean up
+        import re
+        branch_name = branch_name.strip('"\'`')
+        branch_name = branch_name.split('\n')[0].strip()
+        branch_name = re.sub(r'\s+', '-', branch_name)
+        branch_name = re.sub(r'[^a-zA-Z0-9/_-]', '', branch_name)
+        if len(branch_name) > 50:
+            branch_name = branch_name[:50].rstrip('-')
+        return branch_name
+    finally:
+        os.unlink(prompt_file)
+
+
 def get_staged_files() -> str:
     """Get list of staged files."""
     result = run_git('diff', '--cached', '--name-only')
@@ -287,6 +366,51 @@ Examples:
     # Get context
     recent_commits = get_recent_commits(5)
     name_status = get_staged_name_status()
+
+    # Check if on protected branch
+    current_branch = get_current_branch()
+    if is_protected_branch(current_branch):
+        log_warning(f"You are on '{current_branch}' branch.")
+        print()
+
+        # Suggest a branch name
+        log_info("Suggesting branch name...")
+        suggested_branch = suggest_branch_name(diff, name_status, prompt_cmd, args.lang)
+
+        if suggested_branch:
+            print(f"\n{GREEN}Suggested branch name:{NC} {YELLOW}{suggested_branch}{NC}\n")
+
+            print("Options:")
+            print(f"  {GREEN}[1]{NC} Create branch and commit there (Recommended)")
+            print(f"  {YELLOW}[2]{NC} Continue on {current_branch} anyway")
+            print(f"  {RED}[3]{NC} Cancel")
+            print()
+
+            try:
+                choice = input("Choice [1/2/3]: ").strip()
+            except EOFError:
+                choice = '3'
+
+            if choice == '1':
+                if create_branch(suggested_branch):
+                    log_success(f"Created and switched to '{suggested_branch}'")
+                else:
+                    log_error("Failed to create branch")
+                    sys.exit(1)
+            elif choice == '2':
+                log_warning(f"Continuing on {current_branch}...")
+            else:
+                log_warning("Cancelled")
+                sys.exit(0)
+        else:
+            log_warning("Could not suggest branch name")
+            try:
+                reply = input(f"Continue on {current_branch}? (y/N) ").strip().lower()
+            except EOFError:
+                reply = 'n'
+            if reply != 'y':
+                log_warning("Cancelled")
+                sys.exit(0)
 
     # Generate commit message
     log_info("Generating commit message...")

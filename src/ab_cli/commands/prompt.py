@@ -98,7 +98,8 @@ def send_to_openrouter(prompt: str, context: str, lang: str, specialist: Optiona
     """
     api_key = os.getenv(api_key_env)
     if not api_key:
-        pp(f"Error: The environment variable {api_key_env} is not defined.")
+        # Always print error to stderr, regardless of VERBOSE
+        print(f"Error: The environment variable {api_key_env} is not defined.", file=sys.stderr)
         return None
 
     # Build full prompt
@@ -156,22 +157,23 @@ def send_to_openrouter(prompt: str, context: str, lang: str, specialist: Optiona
         }
 
     except requests.exceptions.RequestException as e:
-        pp(f"Network or HTTP error calling OpenRouter: {e}")
+        # Always print errors to stderr regardless of VERBOSE mode
+        print(f"Network or HTTP error calling OpenRouter: {e}", file=sys.stderr)
         if getattr(e, 'response', None) is not None:
             try:
-                pp(f"Error details: {e.response.text}")
+                print(f"Error details: {e.response.text}", file=sys.stderr)
             except Exception:
                 pass
         return None
     except (KeyError, IndexError) as e:
-        pp(f"Error extracting content from response: {e}")
+        print(f"Error extracting content from response: {e}", file=sys.stderr)
         try:
-            pp("Response structure received:", response.json())
+            print(f"Response structure received: {response.json()}", file=sys.stderr)
         except Exception:
             pass
         return None
     except Exception as e:
-        pp(f"Unexpected error: {e}")
+        print(f"Unexpected error: {e}", file=sys.stderr)
         return None
 
 
@@ -838,7 +840,6 @@ def main():
         if result:
             response_text = result['text']
 
-
             if VERBOSE:
                 pp("\n--- REQUEST INFORMATION ---")
                 pp(f"Provider Used: {result['provider']}")
@@ -863,13 +864,15 @@ def main():
                     except:
                         pass
 
-                print(text)
+                print(text, flush=True)
 
-            try:
-                pyperclip.copy(response_text)
-                pp("Response copied to clipboard!")
-            except pyperclip.PyperclipException as e:
-                pp(f"Error: Could not copy to clipboard. {e}")
+            # Skip clipboard when not in verbose mode (subprocess calls)
+            if VERBOSE:
+                try:
+                    pyperclip.copy(response_text)
+                    pp("Response copied to clipboard!")
+                except pyperclip.PyperclipException as e:
+                    pp(f"Error: Could not copy to clipboard. {e}")
 
             # Prepare processed files information
             files_info = {
