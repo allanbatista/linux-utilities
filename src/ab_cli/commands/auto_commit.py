@@ -268,6 +268,70 @@ Respond ONLY with the commit message:
         os.unlink(prompt_file)
 
 
+def handle_protected_branch(current_branch: str, diff: str, name_status: str,
+                            prompt_cmd: str, lang: str) -> bool:
+    """Handle protected branch workflow. Returns True if should continue, False to abort."""
+    log_warning(f"You are on '{current_branch}' branch.")
+    print()
+
+    # Try to suggest a branch name
+    log_info("Suggesting branch name...")
+    suggested_branch = suggest_branch_name(diff, name_status, prompt_cmd, lang)
+
+    if suggested_branch:
+        print(f"\n{GREEN}Suggested branch:{NC} {YELLOW}{suggested_branch}{NC}\n")
+    else:
+        log_warning("Could not suggest branch name")
+        print()
+
+    print("Options:")
+    if suggested_branch:
+        print(f"  {GREEN}[1]{NC} Create suggested branch '{suggested_branch}'")
+    else:
+        print(f"  {GREEN}[1]{NC} (unavailable - suggestion failed)")
+    print(f"  {BLUE}[2]{NC} Enter branch name manually")
+    print(f"  {YELLOW}[3]{NC} Commit directly on {current_branch}")
+    print(f"  {RED}[4]{NC} Cancel")
+    print()
+
+    try:
+        choice = input("Choice [1/2/3/4]: ").strip()
+    except EOFError:
+        choice = '4'
+
+    if choice == '1' and suggested_branch:
+        if create_branch(suggested_branch):
+            log_success(f"Created and switched to '{suggested_branch}'")
+            return True
+        else:
+            log_error("Failed to create branch")
+            sys.exit(1)
+    elif choice == '2':
+        try:
+            manual_branch = input("Enter branch name: ").strip()
+        except EOFError:
+            manual_branch = ''
+
+        if manual_branch:
+            if create_branch(manual_branch):
+                log_success(f"Created and switched to '{manual_branch}'")
+                return True
+            else:
+                log_error("Failed to create branch")
+                sys.exit(1)
+        else:
+            log_warning("No branch name provided. Cancelled.")
+            sys.exit(0)
+    elif choice == '3':
+        log_info(f"Continuing on {current_branch}...")
+        return True
+    else:
+        log_warning("Cancelled")
+        sys.exit(0)
+
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Automatically generates commit messages using the prompt utility',
@@ -304,6 +368,10 @@ Examples:
 
     # Change to repo root
     os.chdir(get_repo_root())
+
+    # Check if on protected branch FIRST
+    current_branch = get_current_branch()
+    on_protected_branch = is_protected_branch(current_branch)
 
     log_info("Checking for uncommitted changes...")
 
@@ -367,75 +435,9 @@ Examples:
     recent_commits = get_recent_commits(5)
     name_status = get_staged_name_status()
 
-    # Check if on protected branch
-    current_branch = get_current_branch()
-    if is_protected_branch(current_branch):
-        log_warning(f"You are on '{current_branch}' branch.")
-        print()
-
-        # Suggest a branch name
-        log_info("Suggesting branch name...")
-        suggested_branch = suggest_branch_name(diff, name_status, prompt_cmd, args.lang)
-
-        if suggested_branch:
-            print(f"\n{GREEN}Suggested branch name:{NC} {YELLOW}{suggested_branch}{NC}\n")
-
-            print("Options:")
-            print(f"  {GREEN}[1]{NC} Create branch and commit there (Recommended)")
-            print(f"  {YELLOW}[2]{NC} Continue on {current_branch} anyway")
-            print(f"  {RED}[3]{NC} Cancel")
-            print()
-
-            try:
-                choice = input("Choice [1/2/3]: ").strip()
-            except EOFError:
-                choice = '3'
-
-            if choice == '1':
-                if create_branch(suggested_branch):
-                    log_success(f"Created and switched to '{suggested_branch}'")
-                else:
-                    log_error("Failed to create branch")
-                    sys.exit(1)
-            elif choice == '2':
-                log_warning(f"Continuing on {current_branch}...")
-            else:
-                log_warning("Cancelled")
-                sys.exit(0)
-        else:
-            log_warning("Could not suggest branch name")
-            print()
-            print("Options:")
-            print(f"  {GREEN}[1]{NC} Enter branch name manually")
-            print(f"  {YELLOW}[2]{NC} Continue on {current_branch} anyway")
-            print(f"  {RED}[3]{NC} Cancel")
-            print()
-
-            try:
-                choice = input("Choice [1/2/3]: ").strip()
-            except EOFError:
-                choice = '3'
-
-            if choice == '1':
-                try:
-                    manual_branch = input("Enter branch name: ").strip()
-                except EOFError:
-                    manual_branch = ''
-
-                if manual_branch:
-                    if create_branch(manual_branch):
-                        log_success(f"Created and switched to '{manual_branch}'")
-                    else:
-                        log_error("Failed to create branch")
-                        sys.exit(1)
-                else:
-                    log_warning("No branch name provided. Cancelled.")
-                    sys.exit(0)
-            elif choice == '2':
-                log_warning(f"Continuing on {current_branch}...")
-            else:
-                log_warning("Cancelled")
-                sys.exit(0)
+    # Handle protected branch (after staging so we have the diff for suggestions)
+    if on_protected_branch:
+        handle_protected_branch(current_branch, diff, name_status, prompt_cmd, args.lang)
 
     # Generate commit message
     log_info("Generating commit message...")
