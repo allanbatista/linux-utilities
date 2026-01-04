@@ -16,6 +16,7 @@ show_help() {
     echo "Commands:"
     echo "  prompt            Send context to LLM (OpenRouter)"
     echo "  config            Manage configuration"
+    echo "  models            List available LLM models"
     echo ""
     echo "Examples:"
     echo "  ab git auto-commit -a -y"
@@ -44,7 +45,7 @@ case "$COMMAND" in
     git|util)
         exec "$SCRIPT_DIR/ab-$COMMAND" "$@"
         ;;
-    prompt|config)
+    prompt|config|models)
         exec "$SCRIPT_DIR/ab-$COMMAND" "$@"
         ;;
     *)

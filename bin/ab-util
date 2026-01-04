@@ -11,6 +11,8 @@ show_help() {
     echo "Usage: ab util <command> [arguments...]"
     echo ""
     echo "Commands:"
+    echo "  explain           Explain code, errors, or concepts via LLM"
+    echo "  gen-script        Generate scripts from natural language"
     echo "  passgenerator     Secure password generator"
     echo ""
     echo "Use 'ab util <command> --help' for more details"
@@ -27,6 +29,26 @@ shift
 case "$COMMAND" in
     help|-h|--help)
         show_help
+        ;;
+    explain)
+        # Python path setup
+        VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
+        export PYTHONPATH="$PROJECT_DIR/src"
+        if [[ -x "$VENV_PYTHON" ]]; then
+            exec "$VENV_PYTHON" -m ab_cli.commands.explain "$@"
+        else
+            exec /usr/bin/python3 -m ab_cli.commands.explain "$@"
+        fi
+        ;;
+    gen-script|script)
+        # Python path setup
+        VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
+        export PYTHONPATH="$PROJECT_DIR/src"
+        if [[ -x "$VENV_PYTHON" ]]; then
+            exec "$VENV_PYTHON" -m ab_cli.commands.gen_script "$@"
+        else
+            exec /usr/bin/python3 -m ab_cli.commands.gen_script "$@"
+        fi
         ;;
     passgenerator)
         exec "$PROJECT_DIR/scripts/passgenerator" "$@"

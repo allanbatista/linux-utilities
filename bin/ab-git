@@ -12,7 +12,10 @@ show_help() {
     echo ""
     echo "Commands:"
     echo "  auto-commit       Generate commit message via LLM"
+    echo "  branch-name       Generate branch name from task description"
+    echo "  changelog         Generate changelog from commits"
     echo "  pr-description    Generate PR title/description via LLM"
+    echo "  resolve-conflict  Resolve merge conflicts via LLM"
     echo "  rewrite-history   Rewrite commit messages via LLM"
     echo ""
     echo "Use 'ab git <command> --help' for more details"
@@ -50,6 +53,15 @@ case "$COMMAND" in
         ;;
     rewrite-history)
         run_python ab_cli.commands.rewrite_history "$@"
+        ;;
+    branch-name|branch)
+        run_python ab_cli.commands.branch_name "$@"
+        ;;
+    changelog)
+        run_python ab_cli.commands.changelog "$@"
+        ;;
+    resolve-conflict|resolve)
+        run_python ab_cli.commands.resolve_conflict "$@"
         ;;
     *)
         echo "Error: unknown git command '$COMMAND'"
