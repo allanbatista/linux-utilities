@@ -6,12 +6,14 @@ from unittest.mock import patch
 import pytest
 
 from ab_cli.commands.branch_name import (
+    extract_ticket_number,
+    main,
+)
+from ab_cli.utils import (
     branch_exists,
     create_branch,
-    extract_ticket_number,
     get_current_branch,
     is_git_repo,
-    main,
     run_git,
 )
 

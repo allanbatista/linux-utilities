@@ -13,85 +13,22 @@ import sys
 
 from ab_cli.core.config import get_config, estimate_tokens, get_language
 from ab_cli.commands.prompt import send_to_openrouter
-
-# ANSI colors
-RED = '\033[0;31m'
-GREEN = '\033[0;32m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'  # No Color
-
-
-def log_info(msg: str) -> None:
-    print(f"{BLUE}[INFO]{NC} {msg}")
-
-
-def log_success(msg: str) -> None:
-    print(f"{GREEN}[SUCCESS]{NC} {msg}")
+from ab_cli.utils import (
+    log_info,
+    log_success,
+    log_warning,
+    log_error,
+    GREEN,
+    NC,
+    run_git,
+    is_git_repo,
+    get_repo_root,
+    get_current_branch,
+    detect_base_branch,
+)
 
 
-def log_warning(msg: str) -> None:
-    print(f"{YELLOW}[WARNING]{NC} {msg}")
-
-
-def log_error(msg: str) -> None:
-    print(f"{RED}[ERROR]{NC} {msg}", file=sys.stderr)
-
-
-def run_git(*args, capture: bool = True, check: bool = True) -> subprocess.CompletedProcess:
-    """Run a git command."""
-    cmd = ['git'] + list(args)
-    return subprocess.run(
-        cmd,
-        capture_output=capture,
-        text=True,
-        check=check
-    )
-
-
-def is_git_repo() -> bool:
-    """Check if current directory is inside a git repository."""
-    try:
-        run_git('rev-parse', '--is-inside-work-tree')
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
-def get_repo_root() -> str:
-    """Get the root directory of the git repository."""
-    result = run_git('rev-parse', '--show-toplevel')
-    return result.stdout.strip()
-
-
-def get_current_branch() -> str:
-    """Get the current branch name."""
-    result = run_git('rev-parse', '--abbrev-ref', 'HEAD')
-    return result.stdout.strip()
-
-
-def detect_base_branch() -> str:
-    """Detect base branch (main/master/develop)."""
-    # Priority: main > master > develop (local)
-    for branch in ['main', 'master', 'develop']:
-        try:
-            run_git('show-ref', '--verify', '--quiet', f'refs/heads/{branch}')
-            return branch
-        except subprocess.CalledProcessError:
-            pass
-
-    # Fallback: try remote
-    for branch in ['main', 'master', 'develop']:
-        try:
-            run_git('show-ref', '--verify', '--quiet', f'refs/remotes/origin/{branch}')
-            return f'origin/{branch}'
-        except subprocess.CalledProcessError:
-            pass
-
-    return ""
-
-
-def get_commits_ahead(base_branch: str, current_branch: str) -> int:
+def get_commits_ahead_pr(base_branch: str, current_branch: str) -> int:
     """Get number of commits ahead of base branch."""
     try:
         result = run_git('rev-list', '--count', f'{base_branch}..{current_branch}')
@@ -314,7 +251,7 @@ Examples:
         sys.exit(1)
 
     # Check commits ahead
-    commits_ahead = get_commits_ahead(base_branch, current_branch)
+    commits_ahead = get_commits_ahead_pr(base_branch, current_branch)
     if commits_ahead == 0:
         log_warning(f"No commits ahead of {base_branch}")
         sys.exit(0)

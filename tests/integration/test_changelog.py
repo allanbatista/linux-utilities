@@ -7,13 +7,15 @@ import pytest
 
 from ab_cli.commands.changelog import (
     categorize_commits,
-    get_all_tags,
     get_commit_count,
     get_commits,
-    get_latest_tag,
-    is_git_repo,
     main,
     parse_commits,
+)
+from ab_cli.utils import (
+    get_all_tags,
+    get_latest_tag,
+    is_git_repo,
 )
 
 

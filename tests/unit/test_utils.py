@@ -1,12 +1,13 @@
 """Unit tests for utility functions across ab_cli modules."""
+import subprocess
 
 
 class TestAutoCommitGitHelpers:
-    """Tests for git helper functions in auto_commit."""
+    """Tests for git helper functions (now in utils module)."""
 
     def test_run_git_success(self):
         """run_git executes git command."""
-        from ab_cli.commands.auto_commit import run_git
+        from ab_cli.utils import run_git
 
         result = run_git("--version")
         assert result.returncode == 0
@@ -14,22 +15,21 @@ class TestAutoCommitGitHelpers:
 
     def test_is_git_repo_true(self, mock_git_repo, monkeypatch):
         """is_git_repo returns True inside repo."""
-        from ab_cli.commands.auto_commit import is_git_repo
+        from ab_cli.utils import is_git_repo
 
         monkeypatch.chdir(mock_git_repo)
         assert is_git_repo() is True
 
     def test_is_git_repo_false(self, tmp_path, monkeypatch):
         """is_git_repo returns False outside repo."""
-        from ab_cli.commands.auto_commit import is_git_repo
+        from ab_cli.utils import is_git_repo
 
         monkeypatch.chdir(tmp_path)
         assert is_git_repo() is False
 
     def test_get_staged_files(self, mock_git_repo, monkeypatch):
         """get_staged_files returns staged file list."""
-        from ab_cli.commands.auto_commit import get_staged_files
-        import subprocess
+        from ab_cli.utils import get_staged_files
 
         monkeypatch.chdir(mock_git_repo)
 
@@ -43,8 +43,7 @@ class TestAutoCommitGitHelpers:
 
     def test_get_staged_diff(self, mock_git_repo, monkeypatch):
         """get_staged_diff returns diff content."""
-        from ab_cli.commands.auto_commit import get_staged_diff
-        import subprocess
+        from ab_cli.utils import get_staged_diff
 
         monkeypatch.chdir(mock_git_repo)
 
@@ -58,7 +57,7 @@ class TestAutoCommitGitHelpers:
 
     def test_get_repo_root(self, mock_git_repo, monkeypatch):
         """get_repo_root returns repository root."""
-        from ab_cli.commands.auto_commit import get_repo_root
+        from ab_cli.utils import get_repo_root
 
         # Create subdirectory and chdir to it
         subdir = mock_git_repo / "subdir"
@@ -112,11 +111,11 @@ class TestPromptUtils:
 
 
 class TestLoggingHelpers:
-    """Tests for logging helper functions."""
+    """Tests for logging helper functions (now in utils module)."""
 
     def test_log_info(self, capsys):
         """log_info prints info message."""
-        from ab_cli.commands.auto_commit import log_info
+        from ab_cli.utils import log_info
 
         log_info("Test message")
         captured = capsys.readouterr()
@@ -125,7 +124,7 @@ class TestLoggingHelpers:
 
     def test_log_success(self, capsys):
         """log_success prints success message."""
-        from ab_cli.commands.auto_commit import log_success
+        from ab_cli.utils import log_success
 
         log_success("Success message")
         captured = capsys.readouterr()
@@ -134,7 +133,7 @@ class TestLoggingHelpers:
 
     def test_log_warning(self, capsys):
         """log_warning prints warning message."""
-        from ab_cli.commands.auto_commit import log_warning
+        from ab_cli.utils import log_warning
 
         log_warning("Warning message")
         captured = capsys.readouterr()
@@ -143,7 +142,7 @@ class TestLoggingHelpers:
 
     def test_log_error(self, capsys):
         """log_error prints error to stderr."""
-        from ab_cli.commands.auto_commit import log_error
+        from ab_cli.utils import log_error
 
         log_error("Error message")
         captured = capsys.readouterr()

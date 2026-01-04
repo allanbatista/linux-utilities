@@ -6,87 +6,40 @@ Captures uncommitted changes and generates appropriate commit messages.
 """
 import argparse
 import os
-import subprocess
+import re
 import sys
 
 from ab_cli.core.config import get_config, estimate_tokens, get_language
 from ab_cli.commands.prompt import send_to_openrouter
-
-# ANSI colors
-RED = '\033[0;31m'
-GREEN = '\033[0;32m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'  # No Color
-
-
-def log_info(msg: str) -> None:
-    print(f"{BLUE}[INFO]{NC} {msg}")
-
-
-def log_success(msg: str) -> None:
-    print(f"{GREEN}[SUCCESS]{NC} {msg}")
-
-
-def log_warning(msg: str) -> None:
-    print(f"{YELLOW}[WARNING]{NC} {msg}")
-
-
-def log_error(msg: str) -> None:
-    print(f"{RED}[ERROR]{NC} {msg}", file=sys.stderr)
-
-
-def run_git(*args, capture: bool = True, check: bool = True) -> subprocess.CompletedProcess:
-    """Run a git command."""
-    cmd = ['git'] + list(args)
-    return subprocess.run(
-        cmd,
-        capture_output=capture,
-        text=True,
-        check=check
-    )
-
-
-def is_git_repo() -> bool:
-    """Check if current directory is inside a git repository."""
-    try:
-        run_git('rev-parse', '--is-inside-work-tree')
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
-def get_repo_root() -> str:
-    """Get the root directory of the git repository."""
-    result = run_git('rev-parse', '--show-toplevel')
-    return result.stdout.strip()
-
-
-def get_current_branch() -> str:
-    """Get the current branch name."""
-    result = run_git('rev-parse', '--abbrev-ref', 'HEAD')
-    return result.stdout.strip()
-
-
-def is_protected_branch(branch: str) -> bool:
-    """Check if the branch is a protected branch (master/main)."""
-    protected = ['master', 'main', 'develop', 'development']
-    return branch.lower() in protected
-
-
-def create_branch(branch_name: str) -> bool:
-    """Create and checkout a new branch."""
-    try:
-        run_git('checkout', '-b', branch_name)
-        return True
-    except subprocess.CalledProcessError as e:
-        log_error(f"Failed to create branch: {e}")
-        return False
+from ab_cli.utils import (
+    log_info,
+    log_success,
+    log_warning,
+    log_error,
+    RED,
+    GREEN,
+    YELLOW,
+    BLUE,
+    NC,
+    is_git_repo,
+    get_repo_root,
+    get_current_branch,
+    is_protected_branch,
+    create_branch,
+    get_staged_files,
+    get_unstaged_files,
+    get_untracked_files,
+    get_staged_diff,
+    get_staged_name_status,
+    stage_all_files,
+    create_commit,
+    get_latest_commit,
+    get_recent_commits,
+)
 
 
 def suggest_branch_name(diff: str, name_status: str, lang: str) -> str:
     """Generate a suggested branch name based on changes."""
-    import re
     config = get_config()
 
     prompt_text = f"""Analyze these git changes and suggest a branch name.
@@ -157,61 +110,6 @@ Return ONLY the branch name:"""
     except Exception as e:
         log_error(f"Exception suggesting branch name: {e}")
         return ""
-
-
-def get_staged_files() -> str:
-    """Get list of staged files."""
-    result = run_git('diff', '--cached', '--name-only')
-    return result.stdout.strip()
-
-
-def get_unstaged_files() -> str:
-    """Get list of unstaged modified files."""
-    result = run_git('diff', '--name-only')
-    return result.stdout.strip()
-
-
-def get_untracked_files() -> str:
-    """Get list of untracked files."""
-    result = run_git('ls-files', '--others', '--exclude-standard')
-    return result.stdout.strip()
-
-
-def get_staged_diff() -> str:
-    """Get the staged diff."""
-    result = run_git('diff', '--cached')
-    return result.stdout
-
-
-def get_staged_name_status() -> str:
-    """Get staged files with status (A, M, D, etc.)."""
-    result = run_git('diff', '--cached', '--name-status')
-    return result.stdout.strip()
-
-
-def get_recent_commits(count: int = 5) -> str:
-    """Get recent commit messages for style reference."""
-    try:
-        result = run_git('log', '--oneline', f'-{count}', check=False)
-        return result.stdout.strip()
-    except Exception:
-        return ""
-
-
-def stage_all_files() -> None:
-    """Stage all files."""
-    run_git('add', '-A')
-
-
-def create_commit(message: str) -> None:
-    """Create a git commit with the given message."""
-    run_git('commit', '-m', message, capture=False)
-
-
-def get_latest_commit() -> str:
-    """Get the latest commit in oneline format."""
-    result = run_git('log', '-1', '--oneline')
-    return result.stdout.strip()
 
 
 def generate_commit_message(diff: str, name_status: str, recent_commits: str,

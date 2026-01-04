@@ -5,76 +5,20 @@ changelog - Generate changelog/release notes from commits.
 Analyzes commits between tags/refs and generates structured changelog using LLM.
 """
 import argparse
-import json
 import subprocess
 import sys
-from typing import Optional
 
 from ab_cli.core.config import get_config, estimate_tokens, get_language
 from ab_cli.commands.prompt import send_to_openrouter
-
-# ANSI colors
-RED = '\033[0;31m'
-GREEN = '\033[0;32m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'  # No Color
-
-
-def log_info(msg: str) -> None:
-    print(f"{BLUE}[INFO]{NC} {msg}")
-
-
-def log_success(msg: str) -> None:
-    print(f"{GREEN}[SUCCESS]{NC} {msg}")
-
-
-def log_warning(msg: str) -> None:
-    print(f"{YELLOW}[WARNING]{NC} {msg}")
-
-
-def log_error(msg: str) -> None:
-    print(f"{RED}[ERROR]{NC} {msg}", file=sys.stderr)
-
-
-def run_git(*args, capture: bool = True, check: bool = True) -> subprocess.CompletedProcess:
-    """Run a git command."""
-    cmd = ['git'] + list(args)
-    return subprocess.run(
-        cmd,
-        capture_output=capture,
-        text=True,
-        check=check
-    )
-
-
-def is_git_repo() -> bool:
-    """Check if current directory is inside a git repository."""
-    try:
-        run_git('rev-parse', '--is-inside-work-tree')
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
-def get_latest_tag() -> Optional[str]:
-    """Get the most recent tag."""
-    try:
-        result = run_git('describe', '--tags', '--abbrev=0', check=False)
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except subprocess.CalledProcessError:
-        pass
-    return None
-
-
-def get_all_tags() -> list[str]:
-    """Get all tags sorted by version."""
-    try:
-        result = run_git('tag', '--sort=-v:refname')
-        return result.stdout.strip().split('\n') if result.stdout.strip() else []
-    except subprocess.CalledProcessError:
-        return []
+from ab_cli.utils import (
+    log_info,
+    log_success,
+    log_warning,
+    log_error,
+    run_git,
+    is_git_repo,
+    get_latest_tag,
+)
 
 
 def get_commits(range_spec: str, oneline: bool = True) -> str:

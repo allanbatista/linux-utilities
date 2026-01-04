@@ -9,13 +9,15 @@ from ab_cli.commands.pr_description import (
     check_gh_authenticated,
     check_gh_installed,
     create_pr,
-    detect_base_branch,
-    get_commits_ahead,
+    get_commits_ahead_pr as get_commits_ahead,
     get_commits_log,
-    get_current_branch,
     get_diff,
     get_files_changed,
     main,
+)
+from ab_cli.utils import (
+    detect_base_branch,
+    get_current_branch,
 )
 
 
