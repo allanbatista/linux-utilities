@@ -10,9 +10,9 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 
 from ab_cli.core.config import get_config, estimate_tokens, get_language
+from ab_cli.commands.prompt import send_to_openrouter
 
 # ANSI colors
 RED = '\033[0;31m'
@@ -154,23 +154,9 @@ def create_pr(title: str, body: str, base_branch: str, draft: bool = False) -> s
     return result.stdout.strip()
 
 
-def find_prompt_command() -> str:
-    """Find the ab-prompt command."""
-    import pathlib
-    module_dir = pathlib.Path(__file__).parent.parent.parent.parent
-    prompt_cmd = module_dir / 'bin' / 'ab-prompt'
-    if prompt_cmd.exists():
-        return str(prompt_cmd)
-
-    if shutil.which('ab-prompt'):
-        return 'ab-prompt'
-
-    raise FileNotFoundError("Could not find ab-prompt command")
-
-
 def generate_pr_content(commits: str, diff: str, files_changed: str,
                         current_branch: str, base_branch: str,
-                        lang: str, prompt_cmd: str) -> tuple:
+                        lang: str) -> tuple:
     """Generate PR title and description using LLM."""
     config = get_config()
 
@@ -215,27 +201,33 @@ DESCRIPTION:
     # Estimate tokens and select model
     estimated_tokens = estimate_tokens(prompt_text)
     selected_model = config.select_model(estimated_tokens)
+    timeout_s = config.get_with_default('global.timeout_seconds')
+    api_key_env = config.get_with_default('global.api_key_env')
+    api_base = config.get_with_default('global.api_base')
 
     log_info(f"Estimated tokens: ~{estimated_tokens} | Model: {selected_model} | Lang: {lang}")
     print()
 
-    # Write prompt to temp file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(prompt_text)
-        prompt_file = f.name
-
     try:
-        result = subprocess.run(
-            [prompt_cmd, '--model', selected_model, '--lang', lang,
-             '--max-completion-tokens', '-1', '--only-output', '--prompt', '-'],
-            stdin=open(prompt_file, 'r'),
-            capture_output=True,
-            text=True,
-            check=True
+        result = send_to_openrouter(
+            prompt=prompt_text,
+            context="",
+            lang=lang,
+            specialist=None,
+            model_name=selected_model,
+            timeout_s=timeout_s,
+            max_completion_tokens=-1,  # No limit
+            api_key_env=api_key_env,
+            api_base=api_base
         )
-        response = result.stdout.strip()
-    finally:
-        os.unlink(prompt_file)
+
+        if not result:
+            return None, None
+
+        response = result.get('text', '').strip()
+    except Exception as e:
+        log_error(f"Failed to generate PR description: {e}")
+        return None, None
 
     if not response:
         return None, None
@@ -292,13 +284,6 @@ Examples:
         log_error("Not inside a git repository")
         sys.exit(1)
 
-    # Find prompt command
-    try:
-        prompt_cmd = find_prompt_command()
-    except FileNotFoundError as e:
-        log_error(str(e))
-        sys.exit(1)
-
     # Check gh CLI if creating PR
     if args.create:
         if not check_gh_installed():
@@ -351,17 +336,11 @@ Examples:
     # Generate PR content
     log_info("Generating PR title and description...")
 
-    try:
-        pr_title, pr_body = generate_pr_content(
-            commits, diff, files_changed,
-            current_branch, base_branch,
-            args.lang, prompt_cmd
-        )
-    except subprocess.CalledProcessError as e:
-        log_error(f"Failed to generate PR description: {e}")
-        if e.stderr:
-            print(e.stderr, file=sys.stderr)
-        sys.exit(1)
+    pr_title, pr_body = generate_pr_content(
+        commits, diff, files_changed,
+        current_branch, base_branch,
+        args.lang
+    )
 
     if not pr_title:
         log_error("Failed to generate PR description")

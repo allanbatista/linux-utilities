@@ -284,11 +284,16 @@ feature
 
         monkeypatch.setattr(sys, 'argv', ['resolve-conflict', str(conflict_file)])
 
-        with patch('ab_cli.commands.resolve_conflict.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.resolve_conflict.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'merged content'}
 
-            with pytest.raises(SystemExit):
+            # Use --dry-run to avoid applying changes
+            monkeypatch.setattr(sys, 'argv', ['resolve-conflict', '--dry-run', str(conflict_file)])
+
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the argument was accepted
 
@@ -319,7 +324,7 @@ feature
 
         monkeypatch.setattr(sys, 'argv', ['resolve-conflict', '--dry-run', str(conflict_file)])
 
-        with patch('ab_cli.commands.resolve_conflict.resolve_conflict') as mock_resolve:
+        with patch('ab_cli.commands.resolve_conflict.resolve_conflict_with_llm') as mock_resolve:
             mock_resolve.return_value = 'merged content'
 
             try:
@@ -327,5 +332,5 @@ feature
             except SystemExit:
                 pass
 
-            # Verify resolve_conflict was called
+            # Verify resolve_conflict_with_llm was called
             assert mock_resolve.called

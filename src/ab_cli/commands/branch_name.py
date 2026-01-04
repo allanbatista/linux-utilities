@@ -6,13 +6,12 @@ Analyzes task description and generates appropriate branch names following
 conventional naming patterns (feature/, fix/, chore/, etc.).
 """
 import argparse
-import os
 import re
 import subprocess
 import sys
-import tempfile
 
 from ab_cli.core.config import get_config, estimate_tokens, get_language
+from ab_cli.commands.prompt import send_to_openrouter
 
 # ANSI colors
 RED = '\033[0;31m'
@@ -83,25 +82,6 @@ def create_branch(branch_name: str) -> bool:
         return False
 
 
-def find_prompt_command() -> str:
-    """Find the ab-prompt command."""
-    from pathlib import Path
-    import shutil
-
-    # Try relative to this file (installed location)
-    module_dir = Path(__file__).parent.parent.parent.parent
-    prompt_cmd = module_dir / 'bin' / 'ab-prompt'
-
-    if prompt_cmd.exists():
-        return str(prompt_cmd)
-
-    # Try in PATH
-    if shutil.which('ab-prompt'):
-        return 'ab-prompt'
-
-    raise FileNotFoundError("ab-prompt command not found")
-
-
 def extract_ticket_number(description: str) -> str | None:
     """Extract ticket number from description (JIRA-123, #123, etc.)."""
     # Match patterns like JIRA-123, ABC-456, #123
@@ -121,7 +101,6 @@ def extract_ticket_number(description: str) -> str | None:
 def generate_branch_name(description: str, lang: str, prefix: str | None = None) -> str:
     """Generate branch name using LLM."""
     config = get_config()
-    prompt_cmd = find_prompt_command()
 
     # Extract ticket number if present
     ticket = extract_ticket_number(description)
@@ -159,34 +138,32 @@ Return ONLY the branch name:"""
     # Estimate tokens and select model
     estimated_tokens = estimate_tokens(prompt_text)
     selected_model = config.select_model(estimated_tokens)
-
-    # Write prompt to temp file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(prompt_text)
-        prompt_file = f.name
+    timeout_s = config.get_with_default('global.timeout_seconds')
+    api_key_env = config.get_with_default('global.api_key_env')
+    api_base = config.get_with_default('global.api_base')
 
     try:
-        # Run ab-prompt with stdin
-        result = subprocess.run(
-            [prompt_cmd, '--model', selected_model, '--lang', lang,
-             '--max-completion-tokens', '100', '--only-output', '--prompt', '-'],
-            stdin=open(prompt_file, 'r'),
-            capture_output=True,
-            text=True,
-            check=False
+        result = send_to_openrouter(
+            prompt=prompt_text,
+            context="",
+            lang=lang,
+            specialist=None,
+            model_name=selected_model,
+            timeout_s=timeout_s,
+            max_completion_tokens=-1,  # No limit
+            api_key_env=api_key_env,
+            api_base=api_base
         )
 
-        raw_response = result.stdout.strip()
-
-        # Show any errors from ab-prompt
-        if result.stderr:
-            log_error(result.stderr.strip())
-
-        if not raw_response:
-            log_warning("Empty response from LLM")
+        if not result:
+            log_error("API call failed for branch name generation")
             return ""
 
-        branch_name = raw_response
+        branch_name = result.get('text', '').strip()
+
+        if not branch_name:
+            log_warning("Empty response from LLM")
+            return ""
 
         # Clean up the response (remove quotes, extra whitespace, etc.)
         branch_name = branch_name.strip('"\'`')
@@ -200,13 +177,9 @@ Return ONLY the branch name:"""
             branch_name = branch_name[:50].rstrip('-')
 
         return branch_name
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         log_error(f"Failed to generate branch name: {e}")
-        if e.stderr:
-            log_error(e.stderr)
         return ""
-    finally:
-        os.unlink(prompt_file)
 
 
 def main():
@@ -267,6 +240,10 @@ Examples:
 
         branch_name = generate_branch_name(args.description, lang, args.prefix)
 
+        if not branch_name:
+            log_error("Failed to generate branch name")
+            sys.exit(1)
+
         print()
         print(f"{GREEN}Suggested branch name:{NC}")
         print(f"  {YELLOW}{branch_name}{NC}")
@@ -291,9 +268,6 @@ Examples:
             else:
                 sys.exit(1)
 
-    except FileNotFoundError as e:
-        log_error(str(e))
-        sys.exit(1)
     except subprocess.CalledProcessError as e:
         log_error(f"Command failed: {e}")
         if e.stderr:

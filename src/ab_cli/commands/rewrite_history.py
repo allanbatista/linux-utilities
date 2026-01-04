@@ -6,7 +6,6 @@ Analyzes commits and regenerates messages via LLM.
 """
 import argparse
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -14,6 +13,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 
 from ab_cli.core.config import get_config, estimate_tokens, get_language
+from ab_cli.commands.prompt import send_to_openrouter
 
 # ANSI colors
 RED = '\033[0;31m'
@@ -172,24 +172,13 @@ def create_backup_branch(name: Optional[str] = None) -> str:
     return name
 
 
-def find_prompt_command() -> str:
-    """Find the ab-prompt command."""
-    import pathlib
-    module_dir = pathlib.Path(__file__).parent.parent.parent.parent
-    prompt_cmd = module_dir / 'bin' / 'ab-prompt'
-    if prompt_cmd.exists():
-        return str(prompt_cmd)
-
-    if shutil.which('ab-prompt'):
-        return 'ab-prompt'
-
-    raise FileNotFoundError("Could not find ab-prompt command")
-
-
-def needs_rewrite_llm(msg: str, prompt_cmd: str) -> bool:
+def needs_rewrite_llm(msg: str) -> bool:
     """Use LLM to evaluate if commit message needs rewrite."""
     config = get_config()
     model = config.get_with_default('models.small')
+    timeout_s = config.get_with_default('global.timeout_seconds')
+    api_key_env = config.get_with_default('global.api_key_env')
+    api_base = config.get_with_default('global.api_base')
 
     prompt_text = f"""Analyze this git commit message and respond ONLY with 'YES' or 'NO'.
 Does this message need to be rewritten? Consider:
@@ -202,20 +191,29 @@ Message: {msg}
 Respond ONLY 'YES' if it needs rewrite, 'NO' if it's acceptable:"""
 
     try:
-        result = subprocess.run(
-            [prompt_cmd, '--model', model, '--only-output', '--prompt', prompt_text],
-            capture_output=True,
-            text=True,
-            check=True
+        result = send_to_openrouter(
+            prompt=prompt_text,
+            context="",
+            lang="en",
+            specialist=None,
+            model_name=model,
+            timeout_s=timeout_s,
+            max_completion_tokens=-1,
+            api_key_env=api_key_env,
+            api_base=api_base
         )
-        response = result.stdout.strip().upper()[:3]
+
+        if not result:
+            return False
+
+        response = result.get('text', '').strip().upper()[:3]
         return response == 'YES'
-    except subprocess.CalledProcessError:
+    except Exception:
         return False
 
 
 def generate_new_message(commit_hash: str, original_msg: str, diff: str,
-                        files_changed: str, lang: str, prompt_cmd: str) -> str:
+                        files_changed: str, lang: str) -> Optional[str]:
     """Generate new commit message using LLM."""
     config = get_config()
 
@@ -245,23 +243,26 @@ Respond ONLY with the commit message:
 
     estimated_tokens = estimate_tokens(prompt_text)
     selected_model = config.select_model(estimated_tokens)
+    timeout_s = config.get_with_default('global.timeout_seconds')
+    api_key_env = config.get_with_default('global.api_key_env')
+    api_base = config.get_with_default('global.api_base')
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(prompt_text)
-        prompt_file = f.name
+    result = send_to_openrouter(
+        prompt=prompt_text,
+        context="",
+        lang=lang,
+        specialist=None,
+        model_name=selected_model,
+        timeout_s=timeout_s,
+        max_completion_tokens=-1,
+        api_key_env=api_key_env,
+        api_base=api_base
+    )
 
-    try:
-        result = subprocess.run(
-            [prompt_cmd, '--model', selected_model, '--lang', lang,
-             '--max-completion-tokens', '-1', '--only-output', '--prompt', '-'],
-            stdin=open(prompt_file, 'r'),
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        return result.stdout.strip()
-    finally:
-        os.unlink(prompt_file)
+    if not result:
+        return None
+
+    return result.get('text', '').strip()
 
 
 def show_interactive_menu() -> Tuple[str, bool, bool, bool]:
@@ -341,13 +342,6 @@ Examples:
     # Check if inside git repo
     if not is_git_repo():
         log_error("Not inside a git repository")
-        sys.exit(1)
-
-    # Find prompt command
-    try:
-        prompt_cmd = find_prompt_command()
-    except FileNotFoundError as e:
-        log_error(str(e))
         sys.exit(1)
 
     # Change to repo root
@@ -453,7 +447,7 @@ Examples:
                 print(f"  {BLUE}→ Marked for rewrite (< 5 words){NC}")
             elif smart_mode:
                 print("  Evaluating with LLM... ", end='', flush=True)
-                if needs_rewrite_llm(original_msg, prompt_cmd):
+                if needs_rewrite_llm(original_msg):
                     should_rewrite = True
                     print(f"{BLUE}needs rewrite{NC}")
                 else:
@@ -471,15 +465,14 @@ Examples:
 
         # Generate new message
         print("  Generating new message... ", end='', flush=True)
-        try:
-            new_msg = generate_new_message(commit, original_msg, diff, files, args.lang, prompt_cmd)
-            print(f"{GREEN}done{NC}")
-        except subprocess.CalledProcessError as e:
+        new_msg = generate_new_message(commit, original_msg, diff, files, args.lang)
+        if not new_msg:
             print(f"{RED}failed{NC}")
-            log_error(f"Failed to generate message: {e}")
+            log_error("Failed to generate message")
             commits_skipped += 1
             commits_to_rewrite -= 1
             continue
+        print(f"{GREEN}done{NC}")
 
         # Show new message
         print()

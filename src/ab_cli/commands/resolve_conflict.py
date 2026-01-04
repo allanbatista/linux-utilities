@@ -6,14 +6,12 @@ Detects conflict markers, extracts versions, and suggests merged content.
 """
 import argparse
 import os
-import re
 import subprocess
 import sys
-import tempfile
-from pathlib import Path
 from typing import Optional
 
 from ab_cli.core.config import get_config, estimate_tokens, get_language
+from ab_cli.commands.prompt import send_to_openrouter
 
 # ANSI colors
 RED = '\033[0;31m'
@@ -58,22 +56,6 @@ def is_git_repo() -> bool:
         return True
     except subprocess.CalledProcessError:
         return False
-
-
-def find_prompt_command() -> str:
-    """Find the ab-prompt command."""
-    import shutil
-
-    module_dir = Path(__file__).parent.parent.parent.parent
-    prompt_cmd = module_dir / 'bin' / 'ab-prompt'
-
-    if prompt_cmd.exists():
-        return str(prompt_cmd)
-
-    if shutil.which('ab-prompt'):
-        return 'ab-prompt'
-
-    raise FileNotFoundError("ab-prompt command not found")
 
 
 def get_conflicted_files() -> list[str]:
@@ -152,8 +134,8 @@ def get_file_context(filepath: str, conflict: dict, context_lines: int = 10) -> 
     return before, after
 
 
-def resolve_conflict(filepath: str, conflict: dict, prompt_cmd: str,
-                     lang: str, dry_run: bool = False) -> Optional[str]:
+def resolve_conflict_with_llm(filepath: str, conflict: dict,
+                              lang: str, dry_run: bool = False) -> Optional[str]:
     """Resolve a single conflict using LLM."""
     config = get_config()
 
@@ -194,26 +176,28 @@ RESOLVED CODE:"""
 
     estimated_tokens = estimate_tokens(prompt_text)
     selected_model = config.select_model(estimated_tokens)
-
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(prompt_text)
-        prompt_file = f.name
+    timeout_s = config.get_with_default('global.timeout_seconds')
+    api_key_env = config.get_with_default('global.api_key_env')
+    api_base = config.get_with_default('global.api_base')
 
     try:
-        result = subprocess.run(
-            [prompt_cmd, '--model', selected_model, '--lang', lang,
-             '--max-completion-tokens', '-1', '--only-output', '--prompt', '-'],
-            stdin=open(prompt_file, 'r'),
-            capture_output=True,
-            text=True,
-            check=False
+        result = send_to_openrouter(
+            prompt=prompt_text,
+            context="",
+            lang=lang,
+            specialist=None,
+            model_name=selected_model,
+            timeout_s=timeout_s,
+            max_completion_tokens=-1,  # No limit
+            api_key_env=api_key_env,
+            api_base=api_base
         )
 
-        if result.stderr:
-            log_error(result.stderr.strip())
+        if not result:
+            log_error("API call failed for conflict resolution")
             return None
 
-        resolved = result.stdout.strip()
+        resolved = result.get('text', '').strip()
 
         # Clean up markdown code fences if present
         if resolved.startswith('```'):
@@ -224,8 +208,9 @@ RESOLVED CODE:"""
             resolved = '\n'.join(lines)
 
         return resolved
-    finally:
-        os.unlink(prompt_file)
+    except Exception as e:
+        log_error(f"Failed to resolve conflict: {e}")
+        return None
 
 
 def apply_resolution(filepath: str, conflict: dict, resolved_code: str) -> bool:
@@ -308,13 +293,6 @@ Examples:
     # Get language from config if not specified
     lang = args.lang or get_language('resolve-conflict')
 
-    # Find prompt command
-    try:
-        prompt_cmd = find_prompt_command()
-    except FileNotFoundError as e:
-        log_error(str(e))
-        sys.exit(1)
-
     # Get files to process
     if args.file:
         if not os.path.exists(args.file):
@@ -351,7 +329,7 @@ Examples:
         for i, conflict in enumerate(conflicts, 1):
             log_info(f"Resolving conflict {i}/{len(conflicts)} in {filepath}...")
 
-            resolved = resolve_conflict(filepath, conflict, prompt_cmd, lang, args.dry_run)
+            resolved = resolve_conflict_with_llm(filepath, conflict, lang, args.dry_run)
 
             if not resolved:
                 log_warning(f"Could not resolve conflict {i} in {filepath}")

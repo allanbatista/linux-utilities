@@ -246,11 +246,13 @@ class TestMain:
 
         monkeypatch.setattr(sys, 'argv', ['changelog', '-f', 'json'])
 
-        with patch('ab_cli.commands.changelog.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.changelog.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': '{"features": ["add file"]}'}
 
-            with pytest.raises(SystemExit):
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the flag was accepted
 
@@ -266,11 +268,13 @@ class TestMain:
         output_file = tmp_path / 'CHANGELOG.md'
         monkeypatch.setattr(sys, 'argv', ['changelog', '-o', str(output_file)])
 
-        with patch('ab_cli.commands.changelog.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.changelog.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': '# Changelog\n\n- Added file'}
 
-            with pytest.raises(SystemExit):
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the flag was accepted
 
@@ -285,11 +289,13 @@ class TestMain:
 
         monkeypatch.setattr(sys, 'argv', ['changelog', '-c'])
 
-        with patch('ab_cli.commands.changelog.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.changelog.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': '# Changelog\n\n## Features\n- Added file'}
 
-            with pytest.raises(SystemExit):
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the flag was accepted
 

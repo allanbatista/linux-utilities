@@ -165,11 +165,13 @@ class TestMain:
         """Accepts --prefix flag."""
         monkeypatch.setattr(sys, 'argv', ['branch-name', '--prefix', 'fix', 'test description'])
 
-        with patch('ab_cli.commands.branch_name.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.branch_name.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'fix/test-description'}
 
-            with pytest.raises(SystemExit):
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the flag was accepted
 
@@ -177,11 +179,13 @@ class TestMain:
         """Accepts --lang flag."""
         monkeypatch.setattr(sys, 'argv', ['branch-name', '-l', 'pt-br', 'test description'])
 
-        with patch('ab_cli.commands.branch_name.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.branch_name.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'feature/test-description'}
 
-            with pytest.raises(SystemExit):
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the flag was accepted
 

@@ -227,13 +227,12 @@ class TestMain:
         monkeypatch.chdir(mock_git_repo)
         monkeypatch.setattr(sys, "argv", ["pr-description"])
 
-        with patch("ab_cli.commands.pr_description.find_prompt_command", return_value="ab-prompt"):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with pytest.raises(SystemExit) as exc_info:
+            main()
 
-            assert exc_info.value.code == 1
-            captured = capsys.readouterr()
-            assert "base branch" in captured.err.lower()
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "base branch" in captured.err.lower()
 
     def test_main_no_commits_ahead(self, mock_git_repo, monkeypatch, capsys):
         """Exits with no changes when no commits ahead."""
@@ -244,13 +243,12 @@ class TestMain:
 
         monkeypatch.setattr(sys, "argv", ["pr-description"])
 
-        with patch("ab_cli.commands.pr_description.find_prompt_command", return_value="ab-prompt"):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with pytest.raises(SystemExit) as exc_info:
+            main()
 
-            assert exc_info.value.code == 0
-            captured = capsys.readouterr()
-            assert "No commits ahead" in captured.out
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "No commits ahead" in captured.out
 
     def test_main_create_flag_requires_gh(self, mock_git_repo, monkeypatch, capsys):
         """'-c' flag checks for gh CLI."""
@@ -264,14 +262,13 @@ class TestMain:
 
         monkeypatch.setattr(sys, "argv", ["pr-description", "-c"])
 
-        with patch("ab_cli.commands.pr_description.find_prompt_command", return_value="ab-prompt"):
-            with patch("ab_cli.commands.pr_description.check_gh_installed", return_value=False):
-                with pytest.raises(SystemExit) as exc_info:
-                    main()
+        with patch("ab_cli.commands.pr_description.check_gh_installed", return_value=False):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
 
-                assert exc_info.value.code == 1
-                captured = capsys.readouterr()
-                assert "gh CLI" in captured.err
+            assert exc_info.value.code == 1
+            captured = capsys.readouterr()
+            assert "gh CLI" in captured.err
 
     def test_main_base_branch_flag(self, mock_git_repo, monkeypatch, capsys):
         """'-b' flag specifies base branch."""
@@ -287,15 +284,13 @@ class TestMain:
         monkeypatch.setattr(sys, "argv", ["pr-description", "-b", "develop"])
 
         # The test verifies -b flag is parsed and used
-        # By checking that find_prompt_command is called (after branch setup)
-        with patch("ab_cli.commands.pr_description.find_prompt_command") as mock_find:
-            mock_find.return_value = "ab-prompt"  # Return valid command
+        with patch("ab_cli.commands.pr_description.send_to_openrouter") as mock_send:
+            mock_send.return_value = {'text': 'TITLE: Test PR\n\nDESCRIPTION:\n## Summary\n- Test'}
 
-            with patch("ab_cli.commands.pr_description.generate_pr_content") as mock_gen:
-                mock_gen.side_effect = FileNotFoundError("abort after verification")
-
-                with pytest.raises((SystemExit, FileNotFoundError)):
-                    main()
+            try:
+                main()
+            except SystemExit:
+                pass
 
         captured = capsys.readouterr()
         # The base branch should be in the info output

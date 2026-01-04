@@ -323,13 +323,12 @@ class TestMain:
         # Pass a revision range to skip interactive menu
         monkeypatch.setattr(sys, "argv", ["rewrite-history", "--dry-run", "HEAD~1..HEAD"])
 
-        with patch("ab_cli.commands.rewrite_history.find_prompt_command", return_value="ab-prompt"):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with pytest.raises(SystemExit) as exc_info:
+            main()
 
-            assert exc_info.value.code == 1
-            captured = capsys.readouterr()
-            assert "uncommitted changes" in captured.err.lower()
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "uncommitted changes" in captured.err.lower()
 
     def test_main_dry_run(self, mock_git_repo, monkeypatch, capsys):
         """'--dry-run' makes no changes."""
@@ -353,12 +352,11 @@ class TestMain:
 
         monkeypatch.setattr(sys, "argv", ["rewrite-history", "--dry-run", "--force-all", "HEAD~2..HEAD"])
 
-        with patch("ab_cli.commands.rewrite_history.find_prompt_command", return_value="ab-prompt"):
-            with patch("ab_cli.commands.rewrite_history.generate_new_message", return_value="New message"):
-                with pytest.raises(SystemExit) as exc_info:
-                    main()
+        with patch("ab_cli.commands.rewrite_history.generate_new_message", return_value="New message"):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
 
-                assert exc_info.value.code == 0
+            assert exc_info.value.code == 0
 
         # Verify HEAD unchanged
         result = subprocess.run(
@@ -404,10 +402,9 @@ class TestMain:
             "rewrite-history", "--dry-run", "--force-all", "--skip-merges", "HEAD~3..HEAD"
         ])
 
-        with patch("ab_cli.commands.rewrite_history.find_prompt_command", return_value="ab-prompt"):
-            with patch("ab_cli.commands.rewrite_history.generate_new_message", return_value="New"):
-                with pytest.raises(SystemExit):
-                    main()
+        with patch("ab_cli.commands.rewrite_history.generate_new_message", return_value="New"):
+            with pytest.raises(SystemExit):
+                main()
 
         captured = capsys.readouterr()
         assert "Skipping merge commit" in captured.out

@@ -1,13 +1,11 @@
 """Integration tests for ab_cli.commands.gen_script module."""
 import os
 import sys
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from ab_cli.commands.gen_script import (
-    find_prompt_command,
     get_directory_listing,
     get_file_extension,
     get_shebang,
@@ -206,29 +204,31 @@ class TestMain:
         captured = capsys.readouterr()
         assert 'usage:' in captured.out.lower() or 'description' in captured.out.lower()
 
-    def test_main_prompt_not_found_exits_1(self, monkeypatch, capsys, mock_config):
-        """Exits with error if ab-prompt not found."""
+    def test_main_api_failure_exits_1(self, monkeypatch, capsys, mock_config):
+        """Exits with error if API call fails."""
         monkeypatch.setattr(sys, 'argv', ['gen-script', 'test description'])
 
-        with patch('ab_cli.commands.gen_script.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('ab-prompt not found')
+        with patch('ab_cli.commands.gen_script.send_to_openrouter') as mock_send:
+            mock_send.return_value = None
 
             with pytest.raises(SystemExit) as exc_info:
                 main()
 
             assert exc_info.value.code == 1
             captured = capsys.readouterr()
-            assert 'not found' in captured.err.lower()
+            assert 'failed' in captured.err.lower()
 
     def test_main_lang_flag_accepted(self, monkeypatch, capsys, mock_config):
         """Accepts --lang flag."""
         monkeypatch.setattr(sys, 'argv', ['gen-script', '--lang', 'python', 'test'])
 
-        with patch('ab_cli.commands.gen_script.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.gen_script.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'print("hello")'}
 
-            with pytest.raises(SystemExit):
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the flag was accepted
 
@@ -236,11 +236,13 @@ class TestMain:
         """Accepts --type flag."""
         monkeypatch.setattr(sys, 'argv', ['gen-script', '--type', 'cron', 'test'])
 
-        with patch('ab_cli.commands.gen_script.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.gen_script.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'echo hello'}
 
-            with pytest.raises(SystemExit):
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the flag was accepted
 
@@ -248,11 +250,13 @@ class TestMain:
         """Accepts --full flag."""
         monkeypatch.setattr(sys, 'argv', ['gen-script', '--full', 'test'])
 
-        with patch('ab_cli.commands.gen_script.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.gen_script.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'echo hello'}
 
-            with pytest.raises(SystemExit):
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the flag was accepted
 
@@ -261,17 +265,13 @@ class TestMain:
         output_file = tmp_path / 'test_script.sh'
         monkeypatch.setattr(sys, 'argv', ['gen-script', '-o', str(output_file), 'test'])
 
-        with patch('ab_cli.commands.gen_script.find_prompt_command') as mock_find:
-            mock_find.return_value = '/usr/bin/true'
+        with patch('ab_cli.commands.gen_script.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'echo "test"'}
 
-            with patch('ab_cli.commands.gen_script.generate_script') as mock_gen:
-                mock_gen.return_value = 'echo "test"'
-
-                # Don't raise SystemExit, let it complete
-                try:
-                    main()
-                except SystemExit:
-                    pass
+            try:
+                main()
+            except SystemExit:
+                pass
 
         # Check file was created and is executable
         if output_file.exists():
@@ -281,53 +281,16 @@ class TestMain:
         """Generates script with system context."""
         monkeypatch.setattr(sys, 'argv', ['gen-script', 'list files'])
 
-        with patch('ab_cli.commands.gen_script.find_prompt_command') as mock_find:
-            mock_find.return_value = '/usr/bin/true'
+        with patch('ab_cli.commands.gen_script.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'ls -la'}
 
-            with patch('ab_cli.commands.gen_script.generate_script') as mock_gen:
-                mock_gen.return_value = 'ls -la'
+            with patch('ab_cli.commands.gen_script.get_system_context') as mock_ctx:
+                mock_ctx.return_value = 'OS: Linux'
 
-                with patch('ab_cli.commands.gen_script.get_system_context') as mock_ctx:
-                    mock_ctx.return_value = 'OS: Linux'
+                try:
+                    main()
+                except SystemExit:
+                    pass
 
-                    try:
-                        main()
-                    except SystemExit:
-                        pass
-
-                    # Verify generate_script was called
-                    assert mock_gen.called
-
-
-class TestFindPromptCommand:
-    """Tests for find_prompt_command function."""
-
-    def test_find_prompt_command_in_bin(self, tmp_path, monkeypatch):
-        """Finds ab-prompt in bin directory."""
-        # Create fake bin structure
-        bin_dir = tmp_path / 'bin'
-        bin_dir.mkdir()
-        prompt_cmd = bin_dir / 'ab-prompt'
-        prompt_cmd.write_text('#!/bin/bash\necho test')
-
-        # Patch the module path
-        with patch('ab_cli.commands.gen_script.Path') as mock_path:
-            mock_file = MagicMock()
-            mock_file.parent.parent.parent.parent = tmp_path
-            mock_path.return_value = mock_file
-            mock_path.__truediv__ = lambda self, x: tmp_path / x
-
-            # The function looks for bin/ab-prompt relative to module
-            # This is complex to mock, so we'll test the which fallback instead
-
-    def test_find_prompt_command_not_found_raises(self, tmp_path, monkeypatch):
-        """Raises FileNotFoundError when not found."""
-        # Change to a directory without ab-prompt
-        monkeypatch.chdir(tmp_path)
-
-        # Mock shutil.which to return None (shutil is imported inside the function)
-        with patch('shutil.which', return_value=None):
-            # Mock Path.exists to return False for the bin path
-            with patch.object(Path, 'exists', return_value=False):
-                with pytest.raises(FileNotFoundError):
-                    find_prompt_command()
+                # Verify send_to_openrouter was called
+                assert mock_send.called

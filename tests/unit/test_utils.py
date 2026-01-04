@@ -1,7 +1,4 @@
 """Unit tests for utility functions across ab_cli modules."""
-from unittest.mock import patch
-
-import pytest
 
 
 class TestAutoCommitGitHelpers:

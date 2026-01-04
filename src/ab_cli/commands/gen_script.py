@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from ab_cli.core.config import get_config, estimate_tokens, get_language
+from ab_cli.commands.prompt import send_to_openrouter
 
 # ANSI colors
 RED = '\033[0;31m'
@@ -38,24 +39,6 @@ def log_warning(msg: str) -> None:
 
 def log_error(msg: str) -> None:
     print(f"{RED}[ERROR]{NC} {msg}", file=sys.stderr)
-
-
-def find_prompt_command() -> str:
-    """Find the ab-prompt command."""
-    import shutil
-
-    # Try relative to this file (installed location)
-    module_dir = Path(__file__).parent.parent.parent.parent
-    prompt_cmd = module_dir / 'bin' / 'ab-prompt'
-
-    if prompt_cmd.exists():
-        return str(prompt_cmd)
-
-    # Try in PATH
-    if shutil.which('ab-prompt'):
-        return 'ab-prompt'
-
-    raise FileNotFoundError("ab-prompt command not found")
 
 
 def run_cmd(cmd: list[str], default: str = "unknown") -> str:
@@ -182,8 +165,7 @@ def get_file_extension(lang: str) -> str:
 
 def generate_script(description: str, lang: str, script_type: str,
                     system_context: str, dir_listing: str,
-                    prompt_cmd: str, output_lang: str,
-                    full_script: bool = False) -> str:
+                    output_lang: str, full_script: bool = False) -> str:
     """Generate script using LLM."""
     config = get_config()
 
@@ -263,27 +245,30 @@ Return ONLY the command:"""
 
     estimated_tokens = estimate_tokens(prompt_text)
     selected_model = config.select_model(estimated_tokens)
+    timeout_s = config.get_with_default('global.timeout_seconds')
+    api_key_env = config.get_with_default('global.api_key_env')
+    api_base = config.get_with_default('global.api_base')
 
     log_info(f"Using model: {selected_model}")
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(prompt_text)
-        prompt_file = f.name
-
     try:
-        result = subprocess.run(
-            [prompt_cmd, '--model', selected_model, '--lang', output_lang,
-             '--max-completion-tokens', '-1', '--only-output', '--prompt', '-'],
-            stdin=open(prompt_file, 'r'),
-            capture_output=True,
-            text=True,
-            check=False
+        result = send_to_openrouter(
+            prompt=prompt_text,
+            context="",
+            lang=output_lang,
+            specialist=None,
+            model_name=selected_model,
+            timeout_s=timeout_s,
+            max_completion_tokens=-1,  # No limit
+            api_key_env=api_key_env,
+            api_base=api_base
         )
 
-        if result.stderr:
-            log_error(result.stderr.strip())
+        if not result:
+            log_error("API call failed for script generation")
+            return ""
 
-        script = result.stdout.strip()
+        script = result.get('text', '').strip()
 
         # Clean up markdown code fences if present
         if script.startswith('```'):
@@ -296,8 +281,9 @@ Return ONLY the command:"""
             script = '\n'.join(lines)
 
         return script
-    finally:
-        os.unlink(prompt_file)
+    except Exception as e:
+        log_error(f"Failed to generate script: {e}")
+        return ""
 
 
 def main():
@@ -362,13 +348,6 @@ Examples:
         parser.print_help()
         sys.exit(0)
 
-    # Find prompt command
-    try:
-        prompt_cmd = find_prompt_command()
-    except FileNotFoundError as e:
-        log_error(str(e))
-        sys.exit(1)
-
     # Get system and directory context
     log_info("Gathering system context...")
     system_context = get_system_context()
@@ -382,7 +361,7 @@ Examples:
 
     script = generate_script(
         args.description, args.lang, args.script_type,
-        system_context, dir_listing, prompt_cmd, output_lang,
+        system_context, dir_listing, output_lang,
         full_script=use_full_script
     )
 

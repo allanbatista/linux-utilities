@@ -253,29 +253,29 @@ class TestMain:
         captured = capsys.readouterr()
         assert 'usage:' in captured.out.lower() or 'explain' in captured.out.lower()
 
-    def test_main_prompt_not_found_exits_1(self, monkeypatch, capsys, mock_config):
-        """Exits with error if ab-prompt not found."""
+    def test_main_api_failure_no_explanation(self, monkeypatch, capsys, mock_config):
+        """Shows warning if API returns no explanation."""
         monkeypatch.setattr(sys, 'argv', ['explain', 'test input'])
 
-        with patch('ab_cli.commands.explain.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('ab-prompt not found')
+        with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
+            mock_send.return_value = None
 
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+            main()
 
-            assert exc_info.value.code == 1
             captured = capsys.readouterr()
-            assert 'not found' in captured.err.lower()
+            assert 'no explanation' in captured.out.lower() or 'warning' in captured.out.lower()
 
     def test_main_concept_flag(self, monkeypatch, capsys, mock_config):
         """Accepts --concept flag."""
         monkeypatch.setattr(sys, 'argv', ['explain', '--concept', 'dependency injection'])
 
-        with patch('ab_cli.commands.explain.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'DI is a design pattern...'}
 
-            with pytest.raises(SystemExit):
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the flag was accepted
 
@@ -287,11 +287,13 @@ class TestMain:
 
         monkeypatch.setattr(sys, 'argv', ['explain', '--history', '5', 'some error'])
 
-        with patch('ab_cli.commands.explain.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'The error means...'}
 
-            with pytest.raises(SystemExit):
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the flag was accepted
 
@@ -299,11 +301,13 @@ class TestMain:
         """Accepts --with-files flag."""
         monkeypatch.setattr(sys, 'argv', ['explain', '--with-files', 'some error'])
 
-        with patch('ab_cli.commands.explain.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'The error means...'}
 
-            with pytest.raises(SystemExit):
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the flag was accepted
 
@@ -311,11 +315,13 @@ class TestMain:
         """Accepts --verbose flag."""
         monkeypatch.setattr(sys, 'argv', ['explain', '-v', 'some concept'])
 
-        with patch('ab_cli.commands.explain.find_prompt_command') as mock_find:
-            mock_find.side_effect = FileNotFoundError('abort')
+        with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'Detailed explanation...'}
 
-            with pytest.raises(SystemExit):
+            try:
                 main()
+            except SystemExit:
+                pass
 
         # If we got here without argument error, the flag was accepted
 
@@ -327,19 +333,16 @@ class TestMain:
 
         monkeypatch.setattr(sys, 'argv', ['explain', 'test.py'])
 
-        with patch('ab_cli.commands.explain.find_prompt_command') as mock_find:
-            mock_find.return_value = '/usr/bin/true'
+        with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
+            mock_send.return_value = {'text': 'This is a function'}
 
-            with patch('ab_cli.commands.explain.generate_explanation') as mock_gen:
-                mock_gen.return_value = 'This is a function'
+            try:
+                main()
+            except SystemExit:
+                pass
 
-                try:
-                    main()
-                except SystemExit:
-                    pass
-
-                # Verify generate_explanation was called
-                assert mock_gen.called
+            # Verify send_to_openrouter was called
+            assert mock_send.called
 
     def test_main_stdin_input(self, monkeypatch, capsys, mock_config):
         """Handles stdin input with '-'."""
@@ -348,8 +351,10 @@ class TestMain:
         with patch('sys.stdin') as mock_stdin:
             mock_stdin.read.return_value = 'Error: something went wrong'
 
-            with patch('ab_cli.commands.explain.find_prompt_command') as mock_find:
-                mock_find.side_effect = FileNotFoundError('abort')
+            with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
+                mock_send.return_value = {'text': 'The error means...'}
 
-                with pytest.raises(SystemExit):
+                try:
                     main()
+                except SystemExit:
+                    pass
