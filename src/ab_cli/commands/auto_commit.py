@@ -404,11 +404,36 @@ Examples:
                 sys.exit(0)
         else:
             log_warning("Could not suggest branch name")
+            print()
+            print("Options:")
+            print(f"  {GREEN}[1]{NC} Enter branch name manually")
+            print(f"  {YELLOW}[2]{NC} Continue on {current_branch} anyway")
+            print(f"  {RED}[3]{NC} Cancel")
+            print()
+
             try:
-                reply = input(f"Continue on {current_branch}? (y/N) ").strip().lower()
+                choice = input("Choice [1/2/3]: ").strip()
             except EOFError:
-                reply = 'n'
-            if reply != 'y':
+                choice = '3'
+
+            if choice == '1':
+                try:
+                    manual_branch = input("Enter branch name: ").strip()
+                except EOFError:
+                    manual_branch = ''
+
+                if manual_branch:
+                    if create_branch(manual_branch):
+                        log_success(f"Created and switched to '{manual_branch}'")
+                    else:
+                        log_error("Failed to create branch")
+                        sys.exit(1)
+                else:
+                    log_warning("No branch name provided. Cancelled.")
+                    sys.exit(0)
+            elif choice == '2':
+                log_warning(f"Continuing on {current_branch}...")
+            else:
                 log_warning("Cancelled")
                 sys.exit(0)
 
