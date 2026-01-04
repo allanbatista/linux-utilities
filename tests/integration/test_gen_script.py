@@ -1,7 +1,5 @@
 """Integration tests for ab_cli.commands.gen_script module."""
 import os
-import stat
-import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch

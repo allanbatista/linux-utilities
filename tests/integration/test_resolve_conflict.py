@@ -1,7 +1,6 @@
 """Integration tests for ab_cli.commands.resolve_conflict module."""
 import subprocess
 import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
