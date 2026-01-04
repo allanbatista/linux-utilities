@@ -9,34 +9,16 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
 from typing import Optional
 
-from ab_cli.core.config import get_config, estimate_tokens, get_language
-from ab_cli.commands.prompt import send_to_openrouter
-
-# ANSI colors
-RED = '\033[0;31m'
-GREEN = '\033[0;32m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'  # No Color
-
-
-def log_info(msg: str) -> None:
-    print(f"{BLUE}[INFO]{NC} {msg}")
-
-
-def log_success(msg: str) -> None:
-    print(f"{GREEN}[SUCCESS]{NC} {msg}")
-
-
-def log_warning(msg: str) -> None:
-    print(f"{YELLOW}[WARNING]{NC} {msg}")
-
-
-def log_error(msg: str) -> None:
-    print(f"{RED}[ERROR]{NC} {msg}", file=sys.stderr)
+from ab_cli.core.config import get_language
+from ab_cli.utils import (
+    call_llm_with_model_info,
+    log_info,
+    log_warning,
+    GREEN,
+    NC,
+)
 
 
 def get_bash_history(lines: int = 20) -> str:
@@ -76,9 +58,9 @@ def extract_file_references(text: str) -> list[str]:
         r"'([^']+\.[a-z]{1,4})'",  # 'file.py'
         r'"([^"]+\.[a-z]{1,4})"',  # "file.py"
         r'File "([^"]+)"',          # Python traceback
-        r'in ([^\s]+\.[a-z]{1,4})', # in file.py
-        r'from ([^\s]+\.[a-z]{1,4})', # from file.py
-        r'([^\s]+\.[a-z]{1,4}):\d+', # file.py:123
+        r'in ([^\s]+\.[a-z]{1,4})',  # in file.py
+        r'from ([^\s]+\.[a-z]{1,4})',  # from file.py
+        r'([^\s]+\.[a-z]{1,4}):\d+',  # file.py:123
     ]
 
     files = []
@@ -205,44 +187,25 @@ def build_context(args, input_text: str, input_type: str) -> str:
             if val:
                 env_context.append(f"{var}={val}")
         if env_context:
-            context_parts.append(f"=== ENVIRONMENT ===\n" + '\n'.join(env_context))
+            context_parts.append("=== ENVIRONMENT ===\n" + '\n'.join(env_context))
 
     return '\n\n'.join(context_parts)
 
 
 def generate_explanation(prompt_text: str, lang: str) -> str:
     """Generate explanation using LLM."""
-    config = get_config()
-
-    # Estimate tokens and select model
-    estimated_tokens = estimate_tokens(prompt_text)
-    selected_model = config.select_model(estimated_tokens)
-    timeout_s = config.get_with_default('global.timeout_seconds')
-    api_key_env = config.get_with_default('global.api_key_env')
-    api_base = config.get_with_default('global.api_base')
-
-    log_info(f"Using model: {selected_model}")
-
     try:
-        result = send_to_openrouter(
-            prompt=prompt_text,
-            context="",
-            lang=lang,
-            specialist=None,
-            model_name=selected_model,
-            timeout_s=timeout_s,
-            max_completion_tokens=-1,  # No limit
-            api_key_env=api_key_env,
-            api_base=api_base
-        )
+        result, selected_model, _ = call_llm_with_model_info(prompt_text, lang=lang)
+
+        log_info(f"Using model: {selected_model}")
 
         if not result:
-            log_error("API call failed for explanation")
+            log_warning("API call failed for explanation")
             return ""
 
         return result.get('text', '').strip()
     except Exception as e:
-        log_error(f"Failed to generate explanation: {e}")
+        log_warning(f"Failed to generate explanation: {e}")
         return ""
 
 

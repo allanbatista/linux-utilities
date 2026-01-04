@@ -10,156 +10,42 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
-from ab_cli.core.config import get_config, estimate_tokens, get_language
-from ab_cli.commands.prompt import send_to_openrouter
+from ab_cli.core.config import get_config, get_language
+from ab_cli.utils import (
+    call_llm,
+    log_info,
+    log_success,
+    log_warning,
+    log_error,
+    GREEN,
+    YELLOW,
+    RED,
+    BLUE,
+    CYAN,
+    NC,
+    run_git,
+    is_git_repo,
+    get_repo_root,
+    has_uncommitted_changes,
+    is_merge_commit,
+    get_commit_diff,
+    get_commit_files,
+    get_commit_message,
+    get_commit_subject,
+    get_short_hash,
+    list_commits,
+    has_remotes,
+    check_commits_pushed,
+)
 
-# ANSI colors
-RED = '\033[0;31m'
-GREEN = '\033[0;32m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-CYAN = '\033[0;36m'
 BOLD = '\033[1m'
-NC = '\033[0m'  # No Color
-
-
-def log_info(msg: str) -> None:
-    print(f"{BLUE}[INFO]{NC} {msg}")
-
-
-def log_success(msg: str) -> None:
-    print(f"{GREEN}[SUCCESS]{NC} {msg}")
-
-
-def log_warning(msg: str) -> None:
-    print(f"{YELLOW}[WARNING]{NC} {msg}")
-
-
-def log_error(msg: str) -> None:
-    print(f"{RED}[ERROR]{NC} {msg}", file=sys.stderr)
-
-
-def run_git(*args, capture: bool = True, check: bool = True) -> subprocess.CompletedProcess:
-    """Run a git command."""
-    cmd = ['git'] + list(args)
-    return subprocess.run(
-        cmd,
-        capture_output=capture,
-        text=True,
-        check=check
-    )
-
-
-def is_git_repo() -> bool:
-    """Check if current directory is inside a git repository."""
-    try:
-        run_git('rev-parse', '--is-inside-work-tree')
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
-def get_repo_root() -> str:
-    """Get the root directory of the git repository."""
-    result = run_git('rev-parse', '--show-toplevel')
-    return result.stdout.strip()
-
-
-def has_uncommitted_changes() -> bool:
-    """Check if there are uncommitted changes."""
-    try:
-        run_git('diff', '--quiet')
-        run_git('diff', '--cached', '--quiet')
-        return False
-    except subprocess.CalledProcessError:
-        return True
 
 
 def count_words(text: str) -> int:
     """Count words in text."""
     return len(text.split())
-
-
-def is_merge_commit(commit_hash: str) -> bool:
-    """Check if commit is a merge commit."""
-    result = run_git('rev-list', '--parents', '-n', '1', commit_hash)
-    parts = result.stdout.strip().split()
-    return len(parts) > 2  # More than 1 parent
-
-
-def get_commit_diff(commit_hash: str) -> str:
-    """Get diff for a commit."""
-    result = run_git('rev-list', '--parents', '-n', '1', commit_hash)
-    parts = result.stdout.strip().split()
-    parent_count = len(parts) - 1
-
-    if parent_count == 0:
-        # First commit
-        result = run_git('diff-tree', '--root', '-p', commit_hash, check=False)
-    else:
-        result = run_git('show', '--format=', '-p', commit_hash, check=False)
-
-    return result.stdout
-
-
-def get_commit_files(commit_hash: str) -> str:
-    """Get files changed in a commit."""
-    result = run_git('diff-tree', '--no-commit-id', '--name-status', '-r', commit_hash, check=False)
-    return result.stdout.strip()
-
-
-def get_commit_message(commit_hash: str) -> str:
-    """Get full commit message."""
-    result = run_git('log', '-1', '--format=%B', commit_hash)
-    return result.stdout.strip()
-
-
-def get_commit_subject(commit_hash: str) -> str:
-    """Get commit subject line."""
-    result = run_git('log', '-1', '--format=%s', commit_hash)
-    return result.stdout.strip()
-
-
-def get_short_hash(commit_hash: str) -> str:
-    """Get short hash."""
-    result = run_git('log', '-1', '--format=%h', commit_hash)
-    return result.stdout.strip()
-
-
-def list_commits(revision_range: str) -> List[str]:
-    """List commits in range (oldest first)."""
-    if revision_range == '--root':
-        result = run_git('rev-list', '--reverse', 'HEAD')
-    else:
-        result = run_git('rev-list', '--reverse', revision_range)
-    commits = result.stdout.strip().split('\n')
-    return [c for c in commits if c]
-
-
-def has_remotes() -> bool:
-    """Check if repository has remotes."""
-    result = run_git('remote', check=False)
-    return bool(result.stdout.strip())
-
-
-def check_commits_pushed(first_commit: str) -> bool:
-    """Check if commits have been pushed to remote. Returns True if pushed."""
-    if not has_remotes():
-        return False
-
-    try:
-        result = run_git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}', check=False)
-        remote_branch = result.stdout.strip()
-        if not remote_branch:
-            return False
-
-        # Check if first_commit is ancestor of remote branch
-        run_git('merge-base', '--is-ancestor', first_commit, remote_branch)
-        return True
-    except subprocess.CalledProcessError:
-        return False
 
 
 def create_backup_branch(name: Optional[str] = None) -> str:
@@ -174,12 +60,6 @@ def create_backup_branch(name: Optional[str] = None) -> str:
 
 def needs_rewrite_llm(msg: str) -> bool:
     """Use LLM to evaluate if commit message needs rewrite."""
-    config = get_config()
-    model = config.get_with_default('models.small')
-    timeout_s = config.get_with_default('global.timeout_seconds')
-    api_key_env = config.get_with_default('global.api_key_env')
-    api_base = config.get_with_default('global.api_base')
-
     prompt_text = f"""Analyze this git commit message and respond ONLY with 'YES' or 'NO'.
 Does this message need to be rewritten? Consider:
 - Is it too vague, unclear, or meaningless (like 'f', 'fix', 'update')?
@@ -191,17 +71,7 @@ Message: {msg}
 Respond ONLY 'YES' if it needs rewrite, 'NO' if it's acceptable:"""
 
     try:
-        result = send_to_openrouter(
-            prompt=prompt_text,
-            context="",
-            lang="en",
-            specialist=None,
-            model_name=model,
-            timeout_s=timeout_s,
-            max_completion_tokens=-1,
-            api_key_env=api_key_env,
-            api_base=api_base
-        )
+        result = call_llm(prompt_text, lang="en")
 
         if not result:
             return False
@@ -213,10 +83,8 @@ Respond ONLY 'YES' if it needs rewrite, 'NO' if it's acceptable:"""
 
 
 def generate_new_message(commit_hash: str, original_msg: str, diff: str,
-                        files_changed: str, lang: str) -> Optional[str]:
+                         files_changed: str, lang: str) -> Optional[str]:
     """Generate new commit message using LLM."""
-    config = get_config()
-
     prompt_text = f"""Analyze the git changes below and generate ONLY the commit message, without additional explanations.
 
 RULES:
@@ -241,23 +109,7 @@ DIFF:
 Respond ONLY with the commit message:
 """
 
-    estimated_tokens = estimate_tokens(prompt_text)
-    selected_model = config.select_model(estimated_tokens)
-    timeout_s = config.get_with_default('global.timeout_seconds')
-    api_key_env = config.get_with_default('global.api_key_env')
-    api_base = config.get_with_default('global.api_base')
-
-    result = send_to_openrouter(
-        prompt=prompt_text,
-        context="",
-        lang=lang,
-        specialist=None,
-        model_name=selected_model,
-        timeout_s=timeout_s,
-        max_completion_tokens=-1,
-        api_key_env=api_key_env,
-        api_base=api_base
-    )
+    result = call_llm(prompt_text, lang=lang)
 
     if not result:
         return None

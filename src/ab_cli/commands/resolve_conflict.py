@@ -10,63 +10,21 @@ import subprocess
 import sys
 from typing import Optional
 
-from ab_cli.core.config import get_config, estimate_tokens, get_language
-from ab_cli.commands.prompt import send_to_openrouter
-
-# ANSI colors
-RED = '\033[0;31m'
-GREEN = '\033[0;32m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-CYAN = '\033[0;36m'
-NC = '\033[0m'  # No Color
-
-
-def log_info(msg: str) -> None:
-    print(f"{BLUE}[INFO]{NC} {msg}")
-
-
-def log_success(msg: str) -> None:
-    print(f"{GREEN}[SUCCESS]{NC} {msg}")
-
-
-def log_warning(msg: str) -> None:
-    print(f"{YELLOW}[WARNING]{NC} {msg}")
-
-
-def log_error(msg: str) -> None:
-    print(f"{RED}[ERROR]{NC} {msg}", file=sys.stderr)
-
-
-def run_git(*args, capture: bool = True, check: bool = True) -> subprocess.CompletedProcess:
-    """Run a git command."""
-    cmd = ['git'] + list(args)
-    return subprocess.run(
-        cmd,
-        capture_output=capture,
-        text=True,
-        check=check
-    )
-
-
-def is_git_repo() -> bool:
-    """Check if current directory is inside a git repository."""
-    try:
-        run_git('rev-parse', '--is-inside-work-tree')
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
-def get_conflicted_files() -> list[str]:
-    """Get list of files with merge conflicts."""
-    try:
-        result = run_git('diff', '--name-only', '--diff-filter=U')
-        if result.stdout.strip():
-            return result.stdout.strip().split('\n')
-    except subprocess.CalledProcessError:
-        pass
-    return []
+from ab_cli.core.config import get_language
+from ab_cli.utils import (
+    call_llm,
+    log_info,
+    log_success,
+    log_warning,
+    log_error,
+    RED,
+    GREEN,
+    YELLOW,
+    CYAN,
+    NC,
+    is_git_repo,
+    get_conflicted_files,
+)
 
 
 def has_conflict_markers(content: str) -> bool:
@@ -137,8 +95,6 @@ def get_file_context(filepath: str, conflict: dict, context_lines: int = 10) -> 
 def resolve_conflict_with_llm(filepath: str, conflict: dict,
                               lang: str, dry_run: bool = False) -> Optional[str]:
     """Resolve a single conflict using LLM."""
-    config = get_config()
-
     before_context, after_context = get_file_context(filepath, conflict)
 
     ours_code = '\n'.join(conflict['ours'])
@@ -174,24 +130,8 @@ INSTRUCTIONS:
 
 RESOLVED CODE:"""
 
-    estimated_tokens = estimate_tokens(prompt_text)
-    selected_model = config.select_model(estimated_tokens)
-    timeout_s = config.get_with_default('global.timeout_seconds')
-    api_key_env = config.get_with_default('global.api_key_env')
-    api_base = config.get_with_default('global.api_base')
-
     try:
-        result = send_to_openrouter(
-            prompt=prompt_text,
-            context="",
-            lang=lang,
-            specialist=None,
-            model_name=selected_model,
-            timeout_s=timeout_s,
-            max_completion_tokens=-1,  # No limit
-            api_key_env=api_key_env,
-            api_base=api_base
-        )
+        result = call_llm(prompt_text, lang=lang)
 
         if not result:
             log_error("API call failed for conflict resolution")
@@ -221,9 +161,9 @@ def apply_resolution(filepath: str, conflict: dict, resolved_code: str) -> bool:
 
         # Replace conflict section with resolved code
         new_lines = (
-            lines[:conflict['start_line'] - 1] +
-            [resolved_code + '\n'] +
-            lines[conflict['end_line']:]
+            lines[:conflict['start_line'] - 1]
+            + [resolved_code + '\n']
+            + lines[conflict['end_line']:]
         )
 
         with open(filepath, 'w') as f:

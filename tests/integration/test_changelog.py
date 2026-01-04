@@ -248,8 +248,8 @@ class TestMain:
 
         monkeypatch.setattr(sys, 'argv', ['changelog', '-f', 'json'])
 
-        with patch('ab_cli.commands.changelog.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': '{"features": ["add file"]}'}
+        with patch('ab_cli.commands.changelog.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': '{"features": ["add file"]}'}, 'test-model', 100)
 
             try:
                 main()
@@ -270,8 +270,8 @@ class TestMain:
         output_file = tmp_path / 'CHANGELOG.md'
         monkeypatch.setattr(sys, 'argv', ['changelog', '-o', str(output_file)])
 
-        with patch('ab_cli.commands.changelog.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': '# Changelog\n\n- Added file'}
+        with patch('ab_cli.commands.changelog.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': '# Changelog\n\n- Added file'}, 'test-model', 100)
 
             try:
                 main()
@@ -291,8 +291,8 @@ class TestMain:
 
         monkeypatch.setattr(sys, 'argv', ['changelog', '-c'])
 
-        with patch('ab_cli.commands.changelog.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': '# Changelog\n\n## Features\n- Added file'}
+        with patch('ab_cli.commands.changelog.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': '# Changelog\n\n## Features\n- Added file'}, 'test-model', 100)
 
             try:
                 main()

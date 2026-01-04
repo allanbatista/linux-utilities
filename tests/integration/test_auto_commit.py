@@ -234,11 +234,11 @@ class TestMain:
 
         monkeypatch.setattr(sys, "argv", ["auto-commit", "-y"])
 
-        # Mock send_to_openrouter to return None (API failure)
+        # Mock call_llm_with_model_info to return None (API failure)
         # Also mock is_protected_branch to avoid input() prompt
-        with patch("ab_cli.commands.auto_commit.send_to_openrouter") as mock_send:
+        with patch("ab_cli.commands.auto_commit.call_llm_with_model_info") as mock_call:
             with patch("ab_cli.commands.auto_commit.is_protected_branch", return_value=False):
-                mock_send.return_value = None
+                mock_call.return_value = (None, "test-model", 100)
 
                 with pytest.raises(SystemExit) as exc_info:
                     main()
@@ -257,7 +257,7 @@ class TestMain:
 
         monkeypatch.setattr(sys, "argv", ["auto-commit", "-a", "-y"])
 
-        # Mock send_to_openrouter to fail after staging happens
+        # Mock call_llm_with_model_info to fail after staging happens
         call_count = [0]
         original_stage = stage_all_files
 
@@ -267,9 +267,9 @@ class TestMain:
 
         # Also mock is_protected_branch to avoid input() prompt
         with patch("ab_cli.commands.auto_commit.stage_all_files", side_effect=mock_stage):
-            with patch("ab_cli.commands.auto_commit.send_to_openrouter") as mock_send:
+            with patch("ab_cli.commands.auto_commit.call_llm_with_model_info") as mock_call:
                 with patch("ab_cli.commands.auto_commit.is_protected_branch", return_value=False):
-                    mock_send.return_value = None  # Fail after staging
+                    mock_call.return_value = (None, "test-model", 100)  # Fail after staging
 
                     with pytest.raises(SystemExit):
                         main()
@@ -303,9 +303,9 @@ class TestMain:
         monkeypatch.setattr(sys, "argv", ["auto-commit", "-l", "pt-br", "-y"])
 
         # Also mock is_protected_branch to avoid input() prompt
-        with patch("ab_cli.commands.auto_commit.send_to_openrouter") as mock_send:
+        with patch("ab_cli.commands.auto_commit.call_llm_with_model_info") as mock_call:
             with patch("ab_cli.commands.auto_commit.is_protected_branch", return_value=False):
-                mock_send.return_value = None  # Fail to abort
+                mock_call.return_value = (None, "test-model", 100)  # Fail to abort
 
                 with pytest.raises(SystemExit):
                     main()

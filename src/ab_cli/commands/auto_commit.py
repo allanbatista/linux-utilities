@@ -9,9 +9,10 @@ import os
 import re
 import sys
 
-from ab_cli.core.config import get_config, estimate_tokens, get_language
-from ab_cli.commands.prompt import send_to_openrouter
+from ab_cli.core.config import get_language
 from ab_cli.utils import (
+    call_llm,
+    call_llm_with_model_info,
     log_info,
     log_success,
     log_warning,
@@ -40,8 +41,6 @@ from ab_cli.utils import (
 
 def suggest_branch_name(diff: str, name_status: str, lang: str) -> str:
     """Generate a suggested branch name based on changes."""
-    config = get_config()
-
     prompt_text = f"""Analyze these git changes and suggest a branch name.
 
 RULES:
@@ -65,24 +64,8 @@ DIFF PREVIEW (first 1000 chars):
 
 Return ONLY the branch name:"""
 
-    estimated_tokens = estimate_tokens(prompt_text)
-    selected_model = config.select_model(estimated_tokens)
-    timeout_s = config.get_with_default('global.timeout_seconds')
-    api_key_env = config.get_with_default('global.api_key_env')
-    api_base = config.get_with_default('global.api_base')
-
     try:
-        result = send_to_openrouter(
-            prompt=prompt_text,
-            context="",
-            lang=lang,
-            specialist=None,
-            model_name=selected_model,
-            timeout_s=timeout_s,
-            max_completion_tokens=-1,  # No limit
-            api_key_env=api_key_env,
-            api_base=api_base
-        )
+        result = call_llm(prompt_text, lang=lang)
 
         if not result:
             log_error("API call failed for branch suggestion")
@@ -113,11 +96,8 @@ Return ONLY the branch name:"""
 
 
 def generate_commit_message(diff: str, name_status: str, recent_commits: str,
-                           lang: str) -> str:
+                            lang: str) -> str:
     """Generate commit message using the LLM."""
-    config = get_config()
-
-    # Build the prompt
     prompt_text = f"""Analyze the git changes below and generate ONLY the commit message, without additional explanations.
 
 RULES:
@@ -141,27 +121,12 @@ DIFF:
 Respond ONLY with the commit message:
 """
 
-    # Estimate tokens and select model
-    estimated_tokens = estimate_tokens(prompt_text)
-    selected_model = config.select_model(estimated_tokens)
-    timeout_s = config.get_with_default('global.timeout_seconds')
-    api_key_env = config.get_with_default('global.api_key_env')
-    api_base = config.get_with_default('global.api_base')
+    result, selected_model, estimated_tokens = call_llm_with_model_info(
+        prompt_text, lang=lang
+    )
 
     log_info(f"Estimated tokens: ~{estimated_tokens} | Model: {selected_model} | Lang: {lang}")
     print()
-
-    result = send_to_openrouter(
-        prompt=prompt_text,
-        context="",
-        lang=lang,
-        specialist=None,
-        model_name=selected_model,
-        timeout_s=timeout_s,
-        max_completion_tokens=-1,
-        api_key_env=api_key_env,
-        api_base=api_base
-    )
 
     if not result:
         raise RuntimeError("API call failed for commit message generation")

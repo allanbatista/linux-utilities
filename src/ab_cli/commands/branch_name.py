@@ -11,9 +11,9 @@ import subprocess
 import sys
 from typing import Optional
 
-from ab_cli.core.config import get_config, estimate_tokens, get_language
-from ab_cli.commands.prompt import send_to_openrouter
+from ab_cli.core.config import get_language
 from ab_cli.utils import (
+    call_llm,
     log_info,
     log_success,
     log_warning,
@@ -45,8 +45,6 @@ def extract_ticket_number(description: str) -> Optional[str]:
 
 def generate_branch_name(description: str, lang: str, prefix: Optional[str] = None) -> str:
     """Generate branch name using LLM."""
-    config = get_config()
-
     # Extract ticket number if present
     ticket = extract_ticket_number(description)
     ticket_context = f"\nTicket number found: {ticket}" if ticket else ""
@@ -80,25 +78,8 @@ Example outputs:
 
 Return ONLY the branch name:"""
 
-    # Estimate tokens and select model
-    estimated_tokens = estimate_tokens(prompt_text)
-    selected_model = config.select_model(estimated_tokens)
-    timeout_s = config.get_with_default('global.timeout_seconds')
-    api_key_env = config.get_with_default('global.api_key_env')
-    api_base = config.get_with_default('global.api_base')
-
     try:
-        result = send_to_openrouter(
-            prompt=prompt_text,
-            context="",
-            lang=lang,
-            specialist=None,
-            model_name=selected_model,
-            timeout_s=timeout_s,
-            max_completion_tokens=-1,  # No limit
-            api_key_env=api_key_env,
-            api_base=api_base
-        )
+        result = call_llm(prompt_text, lang=lang)
 
         if not result:
             log_error("API call failed for branch name generation")

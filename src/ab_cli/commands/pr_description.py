@@ -11,9 +11,9 @@ import shutil
 import subprocess
 import sys
 
-from ab_cli.core.config import get_config, estimate_tokens, get_language
-from ab_cli.commands.prompt import send_to_openrouter
+from ab_cli.core.config import get_language
 from ab_cli.utils import (
+    call_llm_with_model_info,
     log_info,
     log_success,
     log_warning,
@@ -95,8 +95,6 @@ def generate_pr_content(commits: str, diff: str, files_changed: str,
                         current_branch: str, base_branch: str,
                         lang: str) -> tuple:
     """Generate PR title and description using LLM."""
-    config = get_config()
-
     prompt_text = f"""Analyze the commits and changes below and generate title and description for a Pull Request.
 
 RULES:
@@ -135,28 +133,13 @@ DESCRIPTION:
 - [ ] test 2
 """
 
-    # Estimate tokens and select model
-    estimated_tokens = estimate_tokens(prompt_text)
-    selected_model = config.select_model(estimated_tokens)
-    timeout_s = config.get_with_default('global.timeout_seconds')
-    api_key_env = config.get_with_default('global.api_key_env')
-    api_base = config.get_with_default('global.api_base')
-
-    log_info(f"Estimated tokens: ~{estimated_tokens} | Model: {selected_model} | Lang: {lang}")
-    print()
-
     try:
-        result = send_to_openrouter(
-            prompt=prompt_text,
-            context="",
-            lang=lang,
-            specialist=None,
-            model_name=selected_model,
-            timeout_s=timeout_s,
-            max_completion_tokens=-1,  # No limit
-            api_key_env=api_key_env,
-            api_base=api_base
+        result, selected_model, estimated_tokens = call_llm_with_model_info(
+            prompt_text, lang=lang
         )
+
+        log_info(f"Estimated tokens: ~{estimated_tokens} | Model: {selected_model} | Lang: {lang}")
+        print()
 
         if not result:
             return None, None

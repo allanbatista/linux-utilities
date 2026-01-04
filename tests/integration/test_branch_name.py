@@ -167,8 +167,8 @@ class TestMain:
         """Accepts --prefix flag."""
         monkeypatch.setattr(sys, 'argv', ['branch-name', '--prefix', 'fix', 'test description'])
 
-        with patch('ab_cli.commands.branch_name.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'fix/test-description'}
+        with patch('ab_cli.commands.branch_name.call_llm') as mock_call:
+            mock_call.return_value = {'text': 'fix/test-description'}
 
             try:
                 main()
@@ -181,8 +181,8 @@ class TestMain:
         """Accepts --lang flag."""
         monkeypatch.setattr(sys, 'argv', ['branch-name', '-l', 'pt-br', 'test description'])
 
-        with patch('ab_cli.commands.branch_name.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'feature/test-description'}
+        with patch('ab_cli.commands.branch_name.call_llm') as mock_call:
+            mock_call.return_value = {'text': 'feature/test-description'}
 
             try:
                 main()

@@ -286,8 +286,12 @@ class TestMain:
         monkeypatch.setattr(sys, "argv", ["pr-description", "-b", "develop"])
 
         # The test verifies -b flag is parsed and used
-        with patch("ab_cli.commands.pr_description.send_to_openrouter") as mock_send:
-            mock_send.return_value = {'text': 'TITLE: Test PR\n\nDESCRIPTION:\n## Summary\n- Test'}
+        with patch("ab_cli.commands.pr_description.call_llm_with_model_info") as mock_call:
+            mock_call.return_value = (
+                {'text': 'TITLE: Test PR\n\nDESCRIPTION:\n## Summary\n- Test'},
+                'test-model',
+                100
+            )
 
             try:
                 main()

@@ -284,8 +284,8 @@ feature
 
         monkeypatch.setattr(sys, 'argv', ['resolve-conflict', str(conflict_file)])
 
-        with patch('ab_cli.commands.resolve_conflict.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'merged content'}
+        with patch('ab_cli.commands.resolve_conflict.call_llm') as mock_call:
+            mock_call.return_value = {'text': 'merged content'}
 
             # Use --dry-run to avoid applying changes
             monkeypatch.setattr(sys, 'argv', ['resolve-conflict', '--dry-run', str(conflict_file)])

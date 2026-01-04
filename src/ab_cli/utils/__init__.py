@@ -56,6 +56,11 @@ from ab_cli.utils.git_helpers import (
     get_commits_log,
     get_files_changed,
 )
+from ab_cli.utils.llm_helpers import (
+    call_llm,
+    call_llm_with_model_info,
+    get_llm_text,
+)
 
 __all__ = [
     # Logging functions
@@ -112,4 +117,8 @@ __all__ = [
     'get_diff_against_base',
     'get_commits_log',
     'get_files_changed',
+    # LLM helpers
+    'call_llm',
+    'call_llm_with_model_info',
+    'get_llm_text',
 ]

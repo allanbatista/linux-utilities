@@ -208,8 +208,8 @@ class TestMain:
         """Exits with error if API call fails."""
         monkeypatch.setattr(sys, 'argv', ['gen-script', 'test description'])
 
-        with patch('ab_cli.commands.gen_script.send_to_openrouter') as mock_send:
-            mock_send.return_value = None
+        with patch('ab_cli.commands.gen_script.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = (None, 'test-model', 100)
 
             with pytest.raises(SystemExit) as exc_info:
                 main()
@@ -222,8 +222,8 @@ class TestMain:
         """Accepts --lang flag."""
         monkeypatch.setattr(sys, 'argv', ['gen-script', '--lang', 'python', 'test'])
 
-        with patch('ab_cli.commands.gen_script.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'print("hello")'}
+        with patch('ab_cli.commands.gen_script.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': 'print("hello")'}, 'test-model', 100)
 
             try:
                 main()
@@ -236,8 +236,8 @@ class TestMain:
         """Accepts --type flag."""
         monkeypatch.setattr(sys, 'argv', ['gen-script', '--type', 'cron', 'test'])
 
-        with patch('ab_cli.commands.gen_script.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'echo hello'}
+        with patch('ab_cli.commands.gen_script.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': 'echo hello'}, 'test-model', 100)
 
             try:
                 main()
@@ -250,8 +250,8 @@ class TestMain:
         """Accepts --full flag."""
         monkeypatch.setattr(sys, 'argv', ['gen-script', '--full', 'test'])
 
-        with patch('ab_cli.commands.gen_script.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'echo hello'}
+        with patch('ab_cli.commands.gen_script.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': 'echo hello'}, 'test-model', 100)
 
             try:
                 main()
@@ -265,8 +265,8 @@ class TestMain:
         output_file = tmp_path / 'test_script.sh'
         monkeypatch.setattr(sys, 'argv', ['gen-script', '-o', str(output_file), 'test'])
 
-        with patch('ab_cli.commands.gen_script.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'echo "test"'}
+        with patch('ab_cli.commands.gen_script.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': 'echo "test"'}, 'test-model', 100)
 
             try:
                 main()
@@ -281,8 +281,8 @@ class TestMain:
         """Generates script with system context."""
         monkeypatch.setattr(sys, 'argv', ['gen-script', 'list files'])
 
-        with patch('ab_cli.commands.gen_script.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'ls -la'}
+        with patch('ab_cli.commands.gen_script.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': 'ls -la'}, 'test-model', 100)
 
             with patch('ab_cli.commands.gen_script.get_system_context') as mock_ctx:
                 mock_ctx.return_value = 'OS: Linux'
@@ -292,5 +292,5 @@ class TestMain:
                 except SystemExit:
                     pass
 
-                # Verify send_to_openrouter was called
-                assert mock_send.called
+                # Verify call_llm_with_model_info was called
+                assert mock_call.called

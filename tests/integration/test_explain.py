@@ -257,8 +257,8 @@ class TestMain:
         """Shows warning if API returns no explanation."""
         monkeypatch.setattr(sys, 'argv', ['explain', 'test input'])
 
-        with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
-            mock_send.return_value = None
+        with patch('ab_cli.commands.explain.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = (None, 'test-model', 100)
 
             main()
 
@@ -269,8 +269,8 @@ class TestMain:
         """Accepts --concept flag."""
         monkeypatch.setattr(sys, 'argv', ['explain', '--concept', 'dependency injection'])
 
-        with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'DI is a design pattern...'}
+        with patch('ab_cli.commands.explain.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': 'DI is a design pattern...'}, 'test-model', 100)
 
             try:
                 main()
@@ -287,8 +287,8 @@ class TestMain:
 
         monkeypatch.setattr(sys, 'argv', ['explain', '--history', '5', 'some error'])
 
-        with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'The error means...'}
+        with patch('ab_cli.commands.explain.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': 'The error means...'}, 'test-model', 100)
 
             try:
                 main()
@@ -301,8 +301,8 @@ class TestMain:
         """Accepts --with-files flag."""
         monkeypatch.setattr(sys, 'argv', ['explain', '--with-files', 'some error'])
 
-        with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'The error means...'}
+        with patch('ab_cli.commands.explain.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': 'The error means...'}, 'test-model', 100)
 
             try:
                 main()
@@ -315,8 +315,8 @@ class TestMain:
         """Accepts --verbose flag."""
         monkeypatch.setattr(sys, 'argv', ['explain', '-v', 'some concept'])
 
-        with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'Detailed explanation...'}
+        with patch('ab_cli.commands.explain.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': 'Detailed explanation...'}, 'test-model', 100)
 
             try:
                 main()
@@ -333,16 +333,16 @@ class TestMain:
 
         monkeypatch.setattr(sys, 'argv', ['explain', 'test.py'])
 
-        with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
-            mock_send.return_value = {'text': 'This is a function'}
+        with patch('ab_cli.commands.explain.call_llm_with_model_info') as mock_call:
+            mock_call.return_value = ({'text': 'This is a function'}, 'test-model', 100)
 
             try:
                 main()
             except SystemExit:
                 pass
 
-            # Verify send_to_openrouter was called
-            assert mock_send.called
+            # Verify call_llm_with_model_info was called
+            assert mock_call.called
 
     def test_main_stdin_input(self, monkeypatch, capsys, mock_config):
         """Handles stdin input with '-'."""
@@ -351,8 +351,8 @@ class TestMain:
         with patch('sys.stdin') as mock_stdin:
             mock_stdin.read.return_value = 'Error: something went wrong'
 
-            with patch('ab_cli.commands.explain.send_to_openrouter') as mock_send:
-                mock_send.return_value = {'text': 'The error means...'}
+            with patch('ab_cli.commands.explain.call_llm_with_model_info') as mock_call:
+                mock_call.return_value = ({'text': 'The error means...'}, 'test-model', 100)
 
                 try:
                     main()

@@ -8,9 +8,9 @@ import argparse
 import subprocess
 import sys
 
-from ab_cli.core.config import get_config, estimate_tokens, get_language
-from ab_cli.commands.prompt import send_to_openrouter
+from ab_cli.core.config import get_language
 from ab_cli.utils import (
+    call_llm_with_model_info,
     log_info,
     log_success,
     log_warning,
@@ -103,8 +103,6 @@ def categorize_commits(commits: list[dict]) -> dict[str, list[dict]]:
 def generate_changelog(commits: str, range_spec: str, format_type: str,
                        categorize: bool, lang: str) -> str:
     """Generate changelog using LLM."""
-    config = get_config()
-
     category_instruction = ""
     if categorize:
         category_instruction = """
@@ -142,26 +140,10 @@ RULES:
 
 Generate the changelog:"""
 
-    estimated_tokens = estimate_tokens(prompt_text)
-    selected_model = config.select_model(estimated_tokens)
-    timeout_s = config.get_with_default('global.timeout_seconds')
-    api_key_env = config.get_with_default('global.api_key_env')
-    api_base = config.get_with_default('global.api_base')
-
-    log_info(f"Using model: {selected_model}")
-
     try:
-        result = send_to_openrouter(
-            prompt=prompt_text,
-            context="",
-            lang=lang,
-            specialist=None,
-            model_name=selected_model,
-            timeout_s=timeout_s,
-            max_completion_tokens=-1,  # No limit
-            api_key_env=api_key_env,
-            api_base=api_base
-        )
+        result, selected_model, _ = call_llm_with_model_info(prompt_text, lang=lang)
+
+        log_info(f"Using model: {selected_model}")
 
         if not result:
             log_error("API call failed for changelog generation")
