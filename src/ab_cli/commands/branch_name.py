@@ -9,6 +9,7 @@ import argparse
 import re
 import subprocess
 import sys
+from typing import Optional
 
 from ab_cli.core.config import get_config, estimate_tokens, get_language
 from ab_cli.commands.prompt import send_to_openrouter
@@ -82,7 +83,7 @@ def create_branch(branch_name: str) -> bool:
         return False
 
 
-def extract_ticket_number(description: str) -> str | None:
+def extract_ticket_number(description: str) -> Optional[str]:
     """Extract ticket number from description (JIRA-123, #123, etc.)."""
     # Match patterns like JIRA-123, ABC-456, #123
     patterns = [
@@ -98,7 +99,7 @@ def extract_ticket_number(description: str) -> str | None:
     return None
 
 
-def generate_branch_name(description: str, lang: str, prefix: str | None = None) -> str:
+def generate_branch_name(description: str, lang: str, prefix: Optional[str] = None) -> str:
     """Generate branch name using LLM."""
     config = get_config()
 
