@@ -1,7 +1,4 @@
 """Unit tests for ab_cli.utils.error_handling module."""
-import sys
-from unittest.mock import patch
-
 import pytest
 
 from ab_cli.utils import (

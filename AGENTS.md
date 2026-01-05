@@ -466,3 +466,115 @@ ab git pr-description -c        # Generate and create PR
 - Do not commit `~/.ab/config.json` or files containing keys
 - Load `OPENROUTER_API_KEY` from environment
 - Avoid echoing secrets in logs
+
+---
+
+## Development & Testing
+
+### Step 1: Running Tests with pytest
+
+Run the test suite locally to verify all functionality:
+
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Run with coverage report
+python -m pytest tests/ --cov=src/ab_cli --cov-report=term-missing
+
+# Run specific test file
+python -m pytest tests/integration/test_auto_commit.py -v
+
+# Run specific test class or method
+python -m pytest tests/unit/test_config.py::TestAbConfig -v
+```
+
+**Expected output**: All 387+ tests should pass.
+
+### Step 2: Running GitHub Actions Locally with act
+
+Use [act](https://github.com/nektos/act) to run GitHub Actions workflows locally before pushing:
+
+```bash
+# Install act (if not installed)
+# macOS: brew install act
+# Linux: curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
+
+# Run all workflows
+act
+
+# Run specific workflow job
+act -j test                    # Run test job
+act -j lint                    # Run lint job
+act -j shellcheck              # Run shellcheck job
+
+# Run with specific Python version
+act -j test --matrix python-version:3.12
+
+# Use custom Docker image for better compatibility
+act -j test -P ubuntu-latest=catthehacker/ubuntu:act-latest
+
+# List available jobs
+act -l
+```
+
+**Expected output**: All jobs should succeed (Codecov upload may fail locally without token).
+
+### Step 3: Testing with Docker
+
+Use Docker to test installation and commands in a clean environment:
+
+```bash
+# Build the Docker image
+docker build -t ab-cli-test .
+
+# Run ab help
+docker run --rm ab-cli-test ab help
+
+# Run ab git help
+docker run --rm ab-cli-test ab git help
+
+# Test config show
+docker run --rm ab-cli-test ab config show
+
+# Test passgenerator
+docker run --rm ab-cli-test ab util passgenerator 16
+
+# Run tests inside Docker
+docker run --rm ab-cli-test bash -c "cd /app && pytest tests/ -v"
+
+# Interactive shell for debugging
+docker run --rm -it ab-cli-test bash
+```
+
+**Dockerfile location**: `/Dockerfile` in project root.
+
+**Expected output**: All commands should work, tests should pass (387+ tests).
+
+### Quick Validation Script
+
+Run all 3 steps in sequence:
+
+```bash
+#!/bin/bash
+set -e
+
+echo "=== Step 1: Running pytest ==="
+python -m pytest tests/ -v --tb=short
+
+echo ""
+echo "=== Step 2: Running act (test job) ==="
+act -j test --matrix python-version:3.12 -P ubuntu-latest=catthehacker/ubuntu:act-latest
+
+echo ""
+echo "=== Step 3: Testing with Docker ==="
+docker build -t ab-cli-test .
+docker run --rm ab-cli-test ab help
+docker run --rm ab-cli-test bash -c "cd /app && pytest tests/ -v --tb=short -q | tail -5"
+
+echo ""
+echo "✅ All validation steps passed!"
+```
